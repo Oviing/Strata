@@ -371,7 +371,35 @@ class Catalog:
         if family and self.strata.multi_family(family):
             from strata_control import dsv41_context
             return dsv41_context.choices(self.pack_limit(family, model))
+        if family and self.is_sidecar(family):                # DiffusionGemma: 8K to 128K (past that is untested on a Mac)
+            return [c for c in self.contexts() if c <= 131072]
         return self.contexts()
+
+    def is_sidecar(self, family: str | None) -> bool:
+        """A family run by a Python engine of its own (setup.py SIDECAR_FAMILIES: DiffusionGemma on MLX)."""
+        return bool(family and self.strata.sidecar_family(family))
+
+    def sidecar_plan_lines(self, s) -> list[str]:
+        """What `strata launch --plan` says for a sidecar family: setup.py's own plan text (the same lines as `setup.py --check`), on any
+        computer; off an Apple-silicon Mac it says first that the model needs one.  Changes nothing."""
+        import argparse
+        mod = self.strata.setup_module()
+        ns = argparse.Namespace(model=s.model, context=s.context, mode=getattr(s, "mode", None), data_dir=s.data_dir, models_dir=None,
+                                gguf_dir=s.model_path)
+        host = mod.dgemma_host()
+        return mod.dgemma_plan_lines(ns, s.model, host)
+
+    def sidecar_default(self, family: str) -> str:
+        """The size setup preselects for this computer's memory (setup.sidecar_default_model)."""
+        mod = self.strata.setup_module()
+        return mod.sidecar_default_model(self.strata.sidecar_family(family), float(self.hardware().get("ram_gb") or 0))
+
+    def sidecar_runs_here(self) -> bool:
+        """Whether this computer is an Apple-silicon Mac that can run the sidecar (setup.dgemma_host)."""
+        try:
+            return bool(self.strata.setup_module().dgemma_host()["mac"])
+        except Exception:                                    # noqa: BLE001
+            return False
 
     def pack_limit(self, family: str | None, model: str | None) -> int | None:
         """The installed DeepSeek pack's own context limit (ds4.txt), None when it is not installed or the file does not say."""
@@ -397,7 +425,7 @@ class Catalog:
         own = self.strata.own_families()                # Qwen3.6 is listed for the app; the Terminal's launch list is Flash-Next's
         dsv41 = None
         for fam in self.strata.model_table(hw):
-            if fam["family"] in own and not own[fam["family"]].get("multi_file"):
+            if fam["family"] in own and not (own[fam["family"]].get("multi_file") or own[fam["family"]].get("sidecar")):
                 continue
             for size in fam["sizes"]:
                 f = fit_on(size, hw.get("ram_gb"), vram)
@@ -406,6 +434,10 @@ class Catalog:
                     f = {"vramUseGb": _round1(dsv41["vram_experts_gb"] + sum(c["dense_gb"] for c in dsv41["cards"])),
                          "ramUseGb": _round1(dsv41.get("ram_needed_gb") or dsv41["cpu_experts_gb"]), "spillGb": _round1(dsv41.get("spill_gb") or 0.0)}
                 cat, words = verdict(size.get("on_this_pc"))
+                if size.get("sidecar"):                    # DiffusionGemma (MLX): the Mac's unified memory, no card; off a Mac the row says what it needs
+                    f = {"vramUseGb": 0.0, "ramUseGb": _round1(float(size.get("disk_gb") or size["memory_gb"])), "spillGb": 0.0}
+                    text = str(size.get("on_this_pc") or "")
+                    words = text.split(": ", 1)[1] if text.lower().startswith(("does not fit: ", "tight: ")) else words
                 out.append(ModelRow(
                     family=fam["family"], family_title=fam["title"], model=size["model"], id=size["id"],
                     about=size["about"], download_gb=float(size["download_gb"]), need_vram_gb=f["vramUseGb"],
@@ -425,8 +457,8 @@ class Catalog:
         """`iq3_xxs` or `IQ3_XXS` (and an optional family) -> (family, model); raises ValueError with the closest match."""
         models, families, _ctx, _src = self.tables()
         names = list(models)
-        for fam_name, fam_d in families.items():       # DeepSeek-V4.1-Flash's size is not one of setup's MODELS
-            if fam_d.get("multi_file"):
+        for fam_name, fam_d in families.items():       # DeepSeek-V4.1-Flash's and DiffusionGemma's sizes are not among setup's MODELS
+            if fam_d.get("multi_file") or fam_d.get("sidecar"):
                 names += [m for m in self.strata.sizes_of(models, fam_name) if m not in names]
         import re
         wanted = re.sub(r"(?i)^ista-das(?=-\d)", "IST-DAS", model)     # the set's name on screen is ISTA-DAS; its ids keep the first spelling
@@ -490,6 +522,8 @@ class Catalog:
         the one rule of the app, the Terminal and setup). A Mac keeps its unified-memory rule."""
         from strata_control import default_context
         hw = hw or self.hardware()
+        if self.is_sidecar(family):
+            return int(self.strata.sidecar_family(family)["default_context"])
         if hw.get("mac") and hw.get("ram_gb") and not self.strata.multi_family(family):
             mac = self.strata.mac()                           # a Mac: the context by unified memory (strata_control/mac_fit.py)
             if mac is not None:

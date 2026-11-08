@@ -14,12 +14,15 @@ export const PICTURE_FETCH_FAMILIES = ['qwen', 'coder', 'unsloth', 'gyro', 'swif
 export const fetchesPictures = (version: { sourceFamily?: string; multi_file?: boolean } | undefined, packaged: boolean | undefined) => !!version && packaged === true && !version.multi_file && PICTURE_FETCH_FAMILIES.includes(version.sourceFamily ?? '');
 /** The one line that says how a version differs from its neighbours (the three NVFP4 versions); empty for the rest. */
 export const versionNote=(model:string)=>{const nv=nvfp4Version(model);return nv?tr(nv.note):'';};
+/** DiffusionGemma (Mac only, one request at a time): its own engine, no graphics-card choice, no tuning, no picture reading. */
+export const isDiffusionGemma=(family:{family?:string;title?:string}|undefined|null)=>family?.family==='diffusiongemma'||/diffusion[-_ ]?gemma/i.test(family?.title??'');
 /** Display groups are distinct from the engine's installation family IDs. */
 export function nativeCatalogModels(families:NativeFamily[]):CatalogModel[]{
  if(!families.length)return[];
  const groups:CatalogModel[]=[{family:'qwen3.8',title:'Qwen3.8-Flash-Next',about:'',experimental:false,images:false,sizes:[]},{family:'qwen3.6',title:'Qwen3.6-35B-A3B',about:'',experimental:false,images:false,sizes:[]}];
  for(const family of families){
   if(family.family==='deepseek41'){const sizes=family.sizes.filter(size=>!/^UD-Q8/i.test(size.model));if(sizes.length)groups.push({family:'deepseek41',title:family.title||'DeepSeek-V4.1-Flash',about:family.about??'',experimental:false,images:sizes.some(size=>size.images!==false),sizes:sizes.map(size=>({...size,sourceFamily:family.family,edition:'',images:size.images!==false}))});continue;}
+  if(isDiffusionGemma(family)){if(family.sizes.length)groups.push({family:'diffusiongemma',title:family.title||'DiffusionGemma-26B-A4B',about:family.about??'',experimental:family.experimental,images:false,sizes:family.sizes.map(size=>({...size,sourceFamily:family.family,edition:'',images:false}))});continue;}
   const target=/qwen3[._-]?6|35b[-_]?a3b/i.test(family.title+' '+family.family)?groups[1]:['qwen','swift','coder','unsloth','gyro'].includes(family.family)||/qwen3[._-]?8|flash.next/i.test(family.title)?groups[0]:undefined;
   if(!target)continue;
   const edition=target===groups[0]?({swift:'Swift 1.5',coder:'Coder',unsloth:'Unsloth',gyro:'Gyro'} as Record<string,string>)[family.family]??'':'';

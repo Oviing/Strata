@@ -97,6 +97,8 @@ def add_parsers(sp: argparse._SubParsersAction) -> list[argparse.ArgumentParser]
                    help="let the model read pictures. Default: on when the model can read pictures and the engine has the picture reader. "
                         "'on' picks the reader by your graphics memory: the CPU reader under 24 GB, the GPU reader from 24 GB (any make); "
                         "gpu / cpu choose one; off turns pictures off")
+    g.add_argument("--mode", type=_choice("a decoding mode", S.GEN_MODES), metavar="diffusion|ar",
+                   help="DiffusionGemma: diffusion writes a block of text at a time (the default); ar writes one token at a time")
     g.add_argument("--parallel", type=_parallel, metavar="N", help="requests answered at the same time, 1 to 8 (default: fit to your graphics card)")
     g.add_argument("--mtp", type=_choice("a draft layer setting", S.MTP_MODES), metavar="on|off",
                    help="the draft layer that makes answers faster. off starts without it: about 1 GB less graphics memory and less RAM, "
@@ -230,6 +232,10 @@ def settings_from_args(a: argparse.Namespace, catalog=None) -> tuple[S.LaunchSet
             s.model_path = None
     elif a.family and s.model:
         s.family = a.family
+    elif a.family and catalog is not None and catalog.is_sidecar(a.family):       # --family diffusiongemma alone: the size setup preselects for this computer
+        s.family, s.model = a.family, catalog.sidecar_default(a.family)
+        if not a.model_path:
+            s.model_path = None
     if a.data_dir:
         from strata_control import folders
         found = folders.problem(a.data_dir)
@@ -244,6 +250,8 @@ def settings_from_args(a: argparse.Namespace, catalog=None) -> tuple[S.LaunchSet
         s.vision = a.vision
     if a.parallel:
         s.parallel = a.parallel
+    if getattr(a, "mode", None):
+        s.mode = a.mode
     if a.mtp:
         s.mtp = a.mtp
     if a.drafting:
@@ -786,6 +794,50 @@ def setup_config_keys(wanted: str | None = None) -> list[tuple[str, Path, str]]:
     return found
 
 
+def run_sidecar(a: argparse.Namespace, s: S.LaunchSettings, notices, catalog, machine: bool, fail) -> int:
+    """`strata launch` for a sidecar family (DiffusionGemma on MLX): --plan works on any computer and changes nothing; the launch itself needs an
+    Apple-silicon Mac and is setup.py's install (it serves at the end, as for every model).  The Qwen and DeepSeek steps (engine download,
+    cards, tuning, drafting) do not apply and are not run."""
+    lines = catalog.sidecar_plan_lines(s)
+    runs_here = catalog.sidecar_runs_here()
+    for flag in ("kv", "parallel", "speed", "drafting", "mtp", "tune"):
+        if getattr(a, flag, None) not in (None, False) and not (flag == "tune" and a.tune == "skip"):
+            notices.append(S.Notice("warn", f"--{flag.replace('_', '-')} is not used by DiffusionGemma (it has its own engine); it is left out.", ""))
+    if a.plan:
+        if machine:
+            print(json.dumps({"schema_version": 1, "ok": True, "plan": {"family": s.family, "model": s.model, "mode": s.mode or "diffusion",
+                                                                          "context": s.context or catalog.max_context(s.family, s.model), "runs_here": runs_here,
+                                                                          "lines": lines, "warnings": [n.line() for n in notices], "changed": False,
+                                                                          "same_as": S.flags_text(s)}}))
+        else:
+            _say(f"Plan for '{s.name or (s.model or 'model')}':")
+            for line in lines:
+                _say(("  " + line) if not line.startswith(" ") else line)
+            for n in notices:
+                _say(f"  [!] {n.line()}")
+            _say(f"  same as   {S.flags_text(s)}")
+            _say("Nothing was changed.")
+        return 0
+    if not runs_here:
+        return fail(lines[0].split(". This is a plan only")[0] + ". Nothing was changed. `strata launch --plan --family diffusiongemma --model "
+                    f"{s.model}` shows what it would do.", 5)
+    import subprocess
+    argv = [sys.executable, str(catalog.strata.src / "setup.py"), "--family", s.family, "--model", s.model]
+    ctx = s.context or catalog.max_context(s.family, s.model)
+    argv += ["--context", str(ctx), "--mode", s.mode or "diffusion", "--port", str(s.port)]
+    if a.yes or machine:
+        argv.append("--yes")
+    if s.data_dir:
+        argv += ["--data-dir", s.data_dir]
+    if s.model_path:
+        argv += ["--model-path", s.model_path]
+    if s.api_key:
+        argv += ["--api-key", s.api_key]
+    for n in notices:
+        _say(f"[!] {n.line()}")
+    return subprocess.call(argv)
+
+
 def run_launch(a: argparse.Namespace) -> int:
     from strata_cli.launch import store
     from strata_cli.launch.catalog import Catalog, CatalogUnavailable
@@ -877,6 +929,8 @@ def run_launch(a: argparse.Namespace) -> int:
         s, notices = settings_from_args(a, catalog)
         if backend_note:
             notices.append(S.Notice("warn", backend_note, ""))
+        if catalog is not None and catalog.is_sidecar(s.family):
+            return run_sidecar(a, s, notices, catalog, machine, fail)
         if not machine:
             _interrupted_move_notice()
         have_choices = bool(a.preset or a.model or a.model_path or a.context or a.vision or a.parallel or a.access or a.tune or a.drafting or getattr(a, "split_engine", None) or getattr(a, "speed", None) or getattr(a, "full_quality", False))

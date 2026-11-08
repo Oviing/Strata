@@ -1,0 +1,33 @@
+#!/bin/sh
+# dgemma-strata: the DiffusionGemma build of Strata, kept apart from an installed Strata.
+#
+# It runs the same code as `strata`, but every folder it uses (settings, saved model setups,
+# runtime state, the model files, the sidecar's Python) lives under ~/.dgemma-strata. Your
+# original Strata install, its settings and its running servers are not read and not changed.
+#
+# Set DGEMMA_STRATA_HOME to keep it somewhere else. The two servers can run at the same time
+# if they use different ports: this one defaults to 8090 (the original uses 8080).
+set -eu
+
+HOME_DIR="${DGEMMA_STRATA_HOME:-$HOME/.dgemma-strata}"
+mkdir -p "$HOME_DIR/config" "$HOME_DIR/data" "$HOME_DIR/state" "$HOME_DIR/cache"
+
+# Every Strata path is <XDG folder>/strata/..., so pointing the XDG folders here moves all of them.
+XDG_CONFIG_HOME="$HOME_DIR/config"
+XDG_DATA_HOME="$HOME_DIR/data"
+XDG_STATE_HOME="$HOME_DIR/state"
+XDG_CACHE_HOME="$HOME_DIR/cache"
+STRATA_DATA_DIR="$HOME_DIR/data/strata"
+STRATA_DEFAULT_PORT="${STRATA_DEFAULT_PORT:-8090}"
+export XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME STRATA_DATA_DIR STRATA_DEFAULT_PORT
+unset STRATA_INSTALL_DIR STRATA_PROFILE_DIR STRATA_RUNTIME_DIR STRATA_STATE_DIR STRATA_HOME
+
+# Follow symlinks so this can live on PATH, then hand over to the normal launcher.
+self=$0
+while [ -L "$self" ]; do
+  dir=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
+  target=$(readlink "$self")
+  case $target in /*) self=$target ;; *) self=$dir/$target ;; esac
+done
+HERE=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
+exec "$HERE/strata" "$@"

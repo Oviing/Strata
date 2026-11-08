@@ -103,6 +103,8 @@ HF_REVISIONS = {
     "agentionai/Qwen3.8-Flash-Next-Gyro-GGUF": "1ada08422e404aca51ab9df665f089f34c419c6b",           # 2026-10-13
     "unsloth/DeepSeek-V4.1-Flash-1017-GGUF": "8a6ec9cf118e785a362ea94ee123c61c70553be6",             # 2026-10-30 (adds UD-IQ1_S / UD-IQ1_M; every file pinned from the 2026-10-20 commit has the same size and SHA-256 here)
     "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF": "cb02422c900df489cea5833e8a92171224059b3c",    # 2026-10-24 (ISTA-DASLab's final 1.75 / 2.00 / 2.25 bpw sets and Engram)
+    "google/diffusiongemma-26B-A4B-it": "f7f5b7f5fa82ffc52addd066915886d497f5517b",                     # 2026-07-15 (BF16 source of the Mac's 3-bit copy; read from the Hub's API)
+    "mlx-community/diffusiongemma-26B-A4B-it-4bit": "a7a81407613811e8ba63af92ac0d852b809e191f",        # 2026-07-15 (MLX 4-bit, ready to run on a Mac)
 }
 
 
@@ -1024,6 +1026,81 @@ MULTI_FILE_FAMILIES["deepseek41"]["models"] = {
 # Every model file Strata downloads has a fixed size and SHA-256: (repository, file name) -> (bytes, sha256).  download()
 # checks the file against it as soon as it is whole (a wrong file is deleted and setup stops), and stops before the
 # download when the server's size is not the pinned one.  The files are fetched from the commits in HF_REVISIONS.
+# DiffusionGemma (architecture diffusion_gemma, Google's 26B-A4B-it): a SIDECAR family.  It has no GGUF and no Strata engine binary:
+# a small Python engine (tools/diffusiongemma/engine.py) runs it on MLX on an Apple-silicon Mac, in a virtual environment of its own
+# (<data>/runtimes/diffusiongemma-mlx) that holds only the two pinned packages below.  Not in FAMILIES, OWN_PATH_FAMILIES or
+# MULTI_FILE_FAMILIES: SIDECAR_FAMILIES, installed by install_diffusiongemma.  Every repository is pinned to the commit read from the
+# Hub's API (HF_REVISIONS); the large files carry their size and SHA-256 (REPO_PINS), the small text files their size only (they come
+# from the same pinned commit).  mlx-vlm 0.7.0 to 0.7.12 contain models/diffusion_gemma (checked in the PyPI wheels of 0.7.0 and
+# 0.7.12); 0.7.12 asks for mlx>=0.32.4.
+DGEMMA_PACKAGES = ("mlx==0.32.4", "mlx-vlm==0.7.12", "numpy==2.5.4")
+DGEMMA_SRC_REPO = "google/diffusiongemma-26B-A4B-it"
+DGEMMA_Q4_REPO = "mlx-community/diffusiongemma-26B-A4B-it-4bit"
+DGEMMA_SRC_FILES = {
+    "model-00001-of-00011.safetensors": (4732780476, "3efe137998af7d2bde4e3ab04ab3524823699a4ac3130adace5003ef40cceeb6"),
+    "model-00002-of-00011.safetensors": (4884578006, "4a39d68c756fb26bbd2a54f2b8d550047ea98f3152f87ec75db825c8e17934a7"),
+    "model-00003-of-00011.safetensors": (4913414742, "ac6083e3489215ca032501714b78832e5cc4c945a8dbbb905b5292a4e95bc75e"),
+    "model-00004-of-00011.safetensors": (4884578030, "865b66393de5a9c752e67beae1bd2c860c12786b72ad86ca9345c00b7b586e60"),
+    "model-00005-of-00011.safetensors": (4913414814, "a87e01bed77ad9d2234851267d99af583ff79c7a86d7494fe08ae0f9de9cd318"),
+    "model-00006-of-00011.safetensors": (4884578070, "077e841b3b138fbc38df2c36665abdaafa96b8c96f968e2263a7452afaa912ab"),
+    "model-00007-of-00011.safetensors": (4913414814, "13a18b3c04a7f19a16385dd8a0d7fd0b9cc89ef131e4294a063c31c7d90c58ef"),
+    "model-00008-of-00011.safetensors": (4884578070, "aca5d3bdfc84700bd55b475781cb46e5608104c4832d2abe111a119ddcb23ff7"),
+    "model-00009-of-00011.safetensors": (4913414814, "8e2418867354e5cb356c0af8ccfdcc60bc363500674d6cf395991e7d6219eb29"),
+    "model-00010-of-00011.safetensors": (4884578070, "93d564b7dd686464a5c068ff9665cd5d3bca399c2ce320aecd41bd011e3787d5"),
+    "model-00011-of-00011.safetensors": (2838371118, "afec047176bb2a05f078566576aec6bdb71ad4d041275d0d0c89473fda6d6d87"),
+    "tokenizer.json": (32169626, "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"),
+}
+DGEMMA_SRC_SMALL = {"chat_template.jinja": 18575, "config.json": 3469, "generation_config.json": 357,
+                    "model.safetensors.index.json": 104650, "processor_config.json": 1689, "tokenizer_config.json": 2741}
+DGEMMA_Q4_FILES = {
+    "model-00001-of-00004.safetensors": (5215121220, "4e9e90d11166740e647ab81edc7eb85ce93fbd97bd6a3b352407224b6337833a"),
+    "model-00002-of-00004.safetensors": (5358706305, "67508ed60a26b9e725be0fb4c2e5bb8f0b76f02ecd33650c66c3330164257ad2"),
+    "model-00003-of-00004.safetensors": (5367044182, "a360651889edf28e7cc50e6d0e30f617b052d8b998cd9b826394f0325cfe9bad"),
+    "model-00004-of-00004.safetensors": (602183698, "ead1033d8d0907f5f7820efb5292a87359ba4683ce9b947fddf5e2e57792ae5f"),
+    "tokenizer.json": (32169626, "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"),
+}
+DGEMMA_Q4_SMALL = {"chat_template.jinja": 17336, "config.json": 58854, "generation_config.json": 357,
+                   "model.safetensors.index.json": 165362, "processor_config.json": 911, "tokenizer_config.json": 2749}
+DGEMMA_TOKENIZER_FILES = ("tokenizer.json", "generation_config.json", "chat_template.jinja", "tokenizer_config.json")
+DGEMMA_FIXTURE_TEMPLATE = ROOT / "serve" / "fixtures" / "diffusiongemma" / "chat_template.jinja"
+DGEMMA_ENGINE = ROOT / "tools" / "diffusiongemma" / "engine.py"
+DGEMMA_MODES = ("diffusion", "ar")
+DGEMMA_STOP_IDS = "1,106"                          # <eos> and <turn|> (generation_config.json)
+DGEMMA_SOURCE_GB = round((sum(v[0] for v in DGEMMA_SRC_FILES.values()) + sum(DGEMMA_SRC_SMALL.values())) / 1e9, 1)   # 51.7
+DGEMMA_HEADROOM_GB = 10.0                          # free disk kept beyond the source and the output of a conversion
+DGEMMA_MIN_RAM_GB = 16.0
+SIDECAR_FAMILIES = {
+    "diffusiongemma": {
+        "title": "DiffusionGemma 26B-A4B", "by": "Google; the MLX 4-bit copy by mlx-community", "arch": "diffusion_gemma",
+        "tag": "dgemma-", "name": "diffusiongemma-26b-a4b-it", "mac_only": True,
+        "about": "26B mixture of experts with 4B active that writes a block of text at a time (diffusion) or one token at a time; "
+                 "Apple-silicon Macs only (MLX), from 16 GB of memory",
+        "license": "Apache 2.0: https://huggingface.co/google/diffusiongemma-26B-A4B-it",
+        "hf": hf(DGEMMA_Q4_REPO), "source_hf": hf(DGEMMA_SRC_REPO), "source_repo": DGEMMA_SRC_REPO, "repo": DGEMMA_Q4_REPO,
+        "sha256": {**DGEMMA_Q4_FILES}, "source_sha256": {**DGEMMA_SRC_FILES}, "small": DGEMMA_Q4_SMALL, "source_small": DGEMMA_SRC_SMALL,
+        "packages": DGEMMA_PACKAGES, "source_gb": DGEMMA_SOURCE_GB, "vision": False, "default_context": 32768,
+        # sizes are approximate: the 4-bit download is exact (the four shards, the tokenizer and the small files, 16.6 GB); the 3-bit copy is made
+        # on the Mac and its size depends on the converter (about 10-11 GB, the vision tower is not used)
+        "models": {
+            "mlx-q3": {"label": "MLX 3-bit (made on this Mac)", "bits": 3, "ram_gb": 16, "download_gb": DGEMMA_SOURCE_GB, "disk_gb": 11.0,
+                       "about": "about 3-bit experts, higher-precision attention and embeddings: about 10-11 GB in memory. Made on your Mac from "
+                                f"Google's BF16 model (a {DGEMMA_SOURCE_GB:.0f} GB download, deleted afterwards if you say yes). The default below 32 GB",
+                       "convert": True},
+            "mlx-q4": {"label": "MLX 4-bit (download)", "bits": 4, "ram_gb": 24,
+                       "download_gb": round((sum(v[0] for v in DGEMMA_Q4_FILES.values()) + sum(DGEMMA_Q4_SMALL.values())) / 1e9, 1),
+                       "disk_gb": 16.6, "about": "4-bit, ready-made by mlx-community: about 16.6 GB, no conversion. The default from 32 GB",
+                       "convert": False},
+        },
+    },
+}
+SIDECAR_DEFAULT_FROM_GB = 32.0                     # below it mlx-q3, from it mlx-q4
+
+
+def sidecar_default_model(fam: dict, ram: float) -> str:
+    """The size preselected for this Mac's memory: the 4-bit copy from 32 GB, the 3-bit one below."""
+    return "mlx-q4" if ram >= SIDECAR_DEFAULT_FROM_GB else "mlx-q3"
+
+
 REPO_PINS = {
     "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF": ISTA_FILES,
     "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF": SWIFT_FILES,
@@ -1033,6 +1110,8 @@ REPO_PINS = {
     "agentionai/Qwen3.8-Flash-Next-Gyro-GGUF": GYRO_FILES,
     "unsloth/DeepSeek-V4.1-Flash-1017-GGUF": DSV41_FILES,
     "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF": DSV41_ISTA_FILES,
+    DGEMMA_SRC_REPO: DGEMMA_SRC_FILES,
+    DGEMMA_Q4_REPO: DGEMMA_Q4_FILES,
 }
 # the files of a repository at a commit other than HF_REVISIONS' (UNSLOTH_V31_REVISION): (repository, commit) -> name -> (bytes, sha256); file_pin looks here first
 REV_PINS = {(UNSLOTH_REPO, UNSLOTH_V31_REVISION): {**UNSLOTH_V31_SHARDS, **UNSLOTH_Q4_V31_SHARDS}}
@@ -7175,6 +7254,15 @@ def choices_from_config(cfg_path: Path) -> dict:
         return {"family": big, "model": size, "context": int(ctx) if ctx and ctx.isdigit() else None, "kv": None,
                 "vision": "none", "esp": "off", "host": cfg.get("host"), "api_key": cfg.get("api_key"),
                 "port": cfg.get("port"), "gpu": cfg.get("gpu"), "layer_split": None, "cuda": None, "vram_reserve_mib": None}
+    side = next((f for f, d in SIDECAR_FAMILIES.items() if tag.startswith(d["tag"])), None)
+    if side is not None:                               # DiffusionGemma: the sidecar's own sizes; no KV / images / projection settings
+        d = SIDECAR_FAMILIES[side]
+        size = next((m for m in d["models"] if m.lower() == tag[len(d["tag"]):].lower()), None)
+        a = cfg.get("args", [])
+        ctx = a[a.index("--max-context") + 1] if "--max-context" in a and a.index("--max-context") + 1 < len(a) else None
+        return {"family": side, "model": size, "context": int(ctx) if ctx and ctx.isdigit() else None, "kv": None,
+                "vision": "none", "esp": "off", "host": cfg.get("host"), "api_key": cfg.get("api_key"),
+                "port": cfg.get("port"), "gpu": None, "layer_split": None, "cuda": None, "vram_reserve_mib": None}
     own = next((f for f, d in OWN_PATH_FAMILIES.items() if tag.startswith(d["tag"])), None)
     if own is not None:                                # Qwen3.6: its own sizes; no KV / images / projection settings
         d = OWN_PATH_FAMILIES[own]
@@ -7211,11 +7299,11 @@ def choices_from_config(cfg_path: Path) -> dict:
 def calibration_targets(have: list, model: str | None, family: str | None) -> list:
     """#2036: the installed configs `--calibrate --model X` (and/or --family) means; every config with neither."""
     if not (model or family):
-        return [c for c in have if choices_from_config(c)["family"] not in (*OWN_PATH_FAMILIES, *MULTI_FILE_FAMILIES)]
+        return [c for c in have if choices_from_config(c)["family"] not in (*OWN_PATH_FAMILIES, *MULTI_FILE_FAMILIES, *SIDECAR_FAMILIES)]
     out = []
     for c in have:
         ch = choices_from_config(c)
-        if ch["family"] in OWN_PATH_FAMILIES or ch["family"] in MULTI_FILE_FAMILIES:   # the tuning measures Flash-Next's engine settings
+        if ch["family"] in OWN_PATH_FAMILIES or ch["family"] in MULTI_FILE_FAMILIES or ch["family"] in SIDECAR_FAMILIES:   # the tuning measures Flash-Next's engine settings
             continue
         if (not model or ch["model"] == model) and (not family or ch["family"] == family):
             out.append(c)
@@ -9938,23 +10026,376 @@ def mac_dsv41_setup(a) -> int:
     return install_dsv41(a, a.family, gpu, False, False, 0, False, a.port or 8080, ram, None, [gpu])
 
 
+# ------------------------------------------------------------------------------------------------ DiffusionGemma (a sidecar family)
+def dgemma_host() -> dict:
+    """What this computer is for DiffusionGemma: {"mac": an Apple-silicon Mac macOS 14+ can run MLX on, "ram_gb", "chip", "os", "why"}.
+    "why" is the plain refusal when it is not one.  Reads the machine only."""
+    if sys.platform != "darwin":
+        name = {"win32": "Windows", "linux": "Linux"}.get(sys.platform, sys.platform)
+        return {"mac": False, "ram_gb": ram_gb(), "chip": platform.processor() or platform.machine(), "os": name,
+                "why": f"DiffusionGemma needs an Apple-silicon Mac (M1 or newer, macOS 14 or newer) to run on MLX; this computer runs {name}"}
+    from strata_control import mac_fit as MF
+    info = MF.mac_info()
+    ram = float(info.get("ram_gb") or ram_gb())
+    why = None
+    if not info.get("arm64"):
+        why = f"DiffusionGemma needs Apple silicon (M1 or newer) for MLX; this Mac has {info.get('chip')}"
+    elif MF.macos_tuple(info.get("macos") or "") < (14, 0):
+        why = f"DiffusionGemma needs macOS 14 or newer for MLX; this Mac runs macOS {info.get('macos') or '?'}"
+    return {"mac": why is None, "ram_gb": ram, "chip": info.get("chip"), "os": "macOS " + str(info.get("macos") or "?"), "why": why}
+
+
+def dgemma_free_gb(path: Path) -> float:
+    """Free disk space at `path` or its nearest existing parent; creates nothing (the plan changes nothing)."""
+    p = Path(path)
+    while not p.exists() and p != p.parent:
+        p = p.parent
+    return shutil.disk_usage(p).free / 1e9
+
+
+def dgemma_paths(a, model: str, plan: bool = False) -> dict:
+    """Where DiffusionGemma's files go: the MLX folder, the BF16 source (the 3-bit copy is made from it), the tokenizer folder and the runtime.
+    `plan`: only looked up, no folder is made or moved."""
+    fam = SIDECAR_FAMILIES["diffusiongemma"]
+    if plan:
+        data = Path(a.data_dir).expanduser() if getattr(a, "data_dir", None) else data_folder_in_place()[0]
+    else:
+        data, _ = data_folder_for(a)
+    models = Path(a.models_dir) if getattr(a, "models_dir", None) else data / "models"
+    tag = fam["tag"] + model
+    return {"data": data, "models": models, "tag": tag, "folder": models / tag, "source": models / (fam["tag"] + "source"),
+            "pack": data / "packs" / tag.lower(), "runtime": data / "runtimes" / "diffusiongemma-mlx"}
+
+
+def dgemma_left_gb(folder: Path, pins: dict, small: dict) -> float:
+    """GB of a pinned file set still to fetch into `folder` (a finished file counts 0, a partial one what is left)."""
+    total = 0
+    for n, (size, _sha) in pins.items():
+        f = folder / n
+        part = f.with_name(f.name + ".part")
+        total += 0 if (f.exists() and done(f)) else size - (part.stat().st_size if part.is_file() else 0)
+    total += sum(s for n, s in small.items() if not (folder / n).is_file())
+    return total / 1e9
+
+
+def dgemma_needs_gb(fam: dict, model: str, paths: dict, own: bool) -> tuple:
+    """(GB still to download, GB of free disk the install needs) for `model`: a conversion needs the source, the output and 10 GB beside them."""
+    md = fam["models"][model]
+    if own:
+        return 0.0, 0.0
+    if md["convert"]:
+        src = dgemma_left_gb(paths["source"], fam["source_sha256"], fam["source_small"])
+        out = 0.0 if (paths["folder"] / "config.json").is_file() else md["disk_gb"]
+        return src, (src + out + DGEMMA_HEADROOM_GB) if (src or out) else 0.0
+    dl = dgemma_left_gb(paths["folder"], fam["sha256"], fam["small"])
+    return dl, (dl + 5.0) if dl else 0.0
+
+
+def dgemma_plan_lines(a, model: str | None = None, host: dict | None = None) -> list:
+    """What the install would do, in plain lines.  Changes nothing and needs no Mac: off a Mac it says so first."""
+    fam = SIDECAR_FAMILIES["diffusiongemma"]
+    host = host or dgemma_host()
+    ram = float(host["ram_gb"] or 0)
+    model = model or getattr(a, "model", None) or sidecar_default_model(fam, ram)
+    md = fam["models"][model]
+    ctx = getattr(a, "context", None) or fam["default_context"]
+    mode = getattr(a, "mode", None) or "diffusion"
+    paths = dgemma_paths(a, model, plan=True)
+    own = getattr(a, "gguf_dir", None)
+    dl, need = dgemma_needs_gb(fam, model, paths, bool(own))
+    out = []
+    if not host["mac"]:
+        out.append(f"{host['why']}. This is a plan only: nothing was changed, and nothing can be installed on this computer.")
+    out.append(f"{fam['title']} {model}: {md['label']}.")
+    if own:
+        out.append(f"  model     your MLX folder {own} (used where it is; nothing is downloaded or copied)")
+    elif md["convert"]:
+        out.append(f"  download  Google's BF16 model, about {fam['source_gb']:.0f} GB" + (f" ({dl:.1f} GB still to fetch)" if dl < fam["source_gb"] - 0.05 else "")
+                   + f", converted here to about 3 bits (about {md['disk_gb']:.0f} GB); the download is deleted afterwards only if you say yes (--yes does)")
+    else:
+        out.append(f"  download  mlx-community's 4-bit copy, about {md['download_gb']:.1f} GB" + (f" ({dl:.1f} GB still to fetch)" if dl < md["download_gb"] - 0.05 else ""))
+    out.append(f"  runtime   a Python environment of its own in {paths['runtime']} with " + ", ".join(fam["packages"]))
+    out.append(f"  engine    {DGEMMA_ENGINE} (a small Python engine; no Strata engine download)")
+    out.append(f"  context   {ctx:,} tokens    mode {'diffusion (a block of text at a time)' if mode == 'diffusion' else 'ar (one token at a time)'}")
+    out.append(f"  disk      about {need:.0f} GB free needed at {paths['models']} ({dgemma_free_gb(paths['models']):.0f} GB free)")
+    mem = f"{ram:.0f} GB of memory" if ram else "memory not known"
+    out.append(f"  memory    needs about {md['ram_gb']} GB; this computer: {mem}"
+               + ("   <- too little" if ram and ram < DGEMMA_MIN_RAM_GB - 0.5 else "   <- tight, close other programs" if ram and ram < md["ram_gb"] - 0.5 else ""))
+    return out
+
+
+def dgemma_run(cmd, quiet: bool = False):
+    """One step of the DiffusionGemma install (the venv, pip, the conversion).  Not run() on purpose: the desktop app's run() allows only
+    Strata's bundled tools, and this sidecar's runtime is a separate environment that holds only the packages pinned in DGEMMA_PACKAGES."""
+    acquisition.require("an install or build step (" + Path(str(cmd[0])).name + ")")
+    say("  > " + " ".join(str(c) for c in cmd))
+    env = dict(os.environ, PYTHONUNBUFFERED="1")
+    r = subprocess.run([str(c) for c in cmd], env=env, stdout=subprocess.PIPE if quiet else None,
+                       stderr=subprocess.STDOUT if quiet else None, text=True, errors="replace")
+    if r.returncode != 0:
+        if quiet and r.stdout:
+            say(r.stdout[-4000:])
+        fail(f"command failed (exit {r.returncode}): {Path(str(cmd[0])).name} {' '.join(str(c) for c in cmd[1:3])}")
+    return r
+
+
+def dgemma_venv_python(runtime: Path) -> Path:
+    return runtime / ("Scripts/python.exe" if WIN else "bin/python")
+
+
+def dgemma_runtime(fam: dict, runtime: Path) -> Path:
+    """The environment of the sidecar: created once, the pinned packages installed once (the list is recorded beside it)."""
+    py = dgemma_venv_python(runtime)
+    record = runtime / "packages.json"
+    want = list(fam["packages"])
+    try:
+        have = json.loads(record.read_text(encoding="utf-8")) if record.is_file() else None
+    except (OSError, ValueError):
+        have = None
+    if py.is_file() and have == want:
+        ok(f"runtime: {runtime} (already set up)")
+        return py
+    if not py.is_file():
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        dgemma_run([sys.executable, "-m", "venv", str(runtime)])
+    dgemma_run([py, "-m", "pip", "install", "--disable-pip-version-check", *want])
+    record.write_text(json.dumps(want), encoding="utf-8")
+    ok(f"runtime: {runtime} ({', '.join(want)})")
+    return py
+
+
+def dgemma_fetch(base: str, folder: Path, pins: dict, small: dict, what: str) -> None:
+    """The pinned files of one repository into `folder`: the large ones checked by size and SHA-256, the small text files by size."""
+    for name, pin in pins.items():
+        dst = folder / name
+        download(base + name, dst, f"{what} {name}")
+        verify_sha256(dst, *pin)
+    for name, size in small.items():
+        dst = folder / name
+        if dst.is_file() and dst.stat().st_size == size:
+            continue
+        download(base + name, dst, f"{what} {name}")
+        if dst.stat().st_size != size:
+            got = dst.stat().st_size
+            dst.unlink()
+            fail(f"{name} is {got:,} bytes; the pinned file is {size:,}", "run setup again; if it repeats, the Hub may be serving another version")
+
+
+def dgemma_own_folder_problem(folder: Path) -> str | None:
+    if not folder.is_dir():
+        return f"{folder} is not a folder"
+    if not (folder / "config.json").is_file() or not any(folder.glob("*.safetensors")):
+        return f"{folder} does not look like an MLX model folder (it needs config.json and the .safetensors files)"
+    return None
+
+
+def dgemma_convert(py: Path, source: Path, out: Path, bits: int) -> None:
+    """Google's BF16 model -> the 3-bit MLX copy with mlx-vlm's own converter (recipe mixed_3_6: 3-bit weights, 6-bit for the embeddings and
+    some projections), into a folder that is moved to its place only when the conversion ended."""
+    part = out.with_name(out.name + ".partial")
+    if part.exists():
+        shutil.rmtree(part)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    dgemma_run([py, "-m", "mlx_vlm.convert", "--hf-path", str(source), "--mlx-path", str(part), "-q", "--q-bits", str(bits),
+                "--q-group-size", "64", "--quant-predicate", f"mixed_{bits}_6"])
+    problem = dgemma_own_folder_problem(part)
+    if problem:
+        fail(f"the conversion ended without a usable model: {problem}", "run setup again; the download is kept")
+    if out.exists():
+        shutil.rmtree(out)
+    part.rename(out)
+
+
+def dgemma_tokenizer(model_dir: Path, pack: Path, extra_dirs=()) -> Path:
+    """tokenizer.json, generation_config.json, chat_template.jinja (and tokenizer_config.json) into <pack>/tokenizer.  The chat template falls
+    back to serve/fixtures/diffusiongemma/chat_template.jinja when no folder has one."""
+    dst = pack / "tokenizer"
+    dst.mkdir(parents=True, exist_ok=True)
+    for name in DGEMMA_TOKENIZER_FILES:
+        src = next((d / name for d in (model_dir, *extra_dirs) if (d / name).is_file()), None)
+        if src is None and name == "chat_template.jinja" and DGEMMA_FIXTURE_TEMPLATE.is_file():
+            src = DGEMMA_FIXTURE_TEMPLATE
+            warn("no chat_template.jinja next to the model: the copy that comes with Strata is used")
+        if src is None:
+            if name in ("tokenizer.json", "chat_template.jinja"):
+                fail(f"{name} is missing in {model_dir}", "put the model's tokenizer.json in that folder, or drop --model-path to download the model")
+            continue
+        shutil.copyfile(src, dst / name)
+    return dst
+
+
+def dgemma_launcher(runtime: Path, py: Path) -> Path:
+    """<runtime>/strata-dgemma: runs the engine in the sidecar's environment, isolated from the user's Python (-I)."""
+    if WIN:
+        script = runtime / "strata-dgemma.bat"
+        script.write_text(f'@echo off\r\n"{py}" -I "{DGEMMA_ENGINE}" %*\r\n', encoding="utf-8")
+    else:
+        script = runtime / "strata-dgemma"
+        script.write_text(f'#!/bin/sh\nexec "{py}" -I "{DGEMMA_ENGINE}" "$@"\n', encoding="utf-8")
+        script.chmod(0o755)
+    return script
+
+
+def dgemma_config(fam: dict, model: str, launcher: Path, mlx: Path, tok: Path, ctx: int, mode: str, port: int) -> dict:
+    """The run config of the sidecar (engine.py --help: --serve --model --max-context --mode --stop-ids)."""
+    tag = fam["tag"] + model
+    return {"exe": str(launcher), "args": ["--serve", "--model", str(mlx), "--max-context", str(ctx), "--mode", mode, "--stop-ids", DGEMMA_STOP_IDS],
+            "cwd": str(ROOT), "tokenizer": str(tok), "model_name": fam["name"], "arch": fam["arch"], "mode": mode,
+            "log": str(home() / f"strata-{tag.lower()}.log"), "lib_dirs": [], "port": port}
+
+
+def install_diffusiongemma(a) -> int:
+    """DiffusionGemma on an Apple-silicon Mac: the checks (Mac, memory, disk), the sidecar's environment with pinned mlx and mlx-vlm, the model
+    (mlx-q4 downloaded; mlx-q3 made here from Google's BF16 model), the tokenizer files, the launcher and the run config."""
+    family = "diffusiongemma"
+    fam = SIDECAR_FAMILIES[family]
+    say()
+    say(f"  {fam['title']} - {fam['by']}: {fam['about']}")
+    step(1, "checking your Mac")
+    host = dgemma_host()
+    if not host["mac"]:
+        fail(host["why"] + ". Nothing was changed",
+             "run it on a Mac with an M1 or newer chip; `strata launch --plan --family diffusiongemma --model mlx-q3` shows the plan on any computer")
+    ram = float(host["ram_gb"] or 0)
+    ok(f"{host['chip']}, {ram:.0f} GB unified memory, {host['os']}")
+    if ram and ram < DGEMMA_MIN_RAM_GB - 0.5:
+        fail(f"{ram:.0f} GB of memory is too little: DiffusionGemma needs at least {DGEMMA_MIN_RAM_GB:.0f} GB (the 3-bit copy takes about 10-11 GB, the system the rest)")
+    names = list(fam["models"])
+    if a.model and a.model not in names:
+        fail(f"{fam['title']} has no {a.model} model", "choose one of: " + ", ".join(names))
+    model = a.model or sidecar_default_model(fam, ram)
+    md = fam["models"][model]
+    ok(f"size: {model} ({md['label']})" + ("" if a.model else f"; the default for {ram:.0f} GB, the other is --model {names[1 - names.index(model)]}"))
+    if ram and ram < md["ram_gb"]:
+        confirm_risk(f"{model} needs about {md['ram_gb']} GB of memory; this Mac has {ram:.0f} GB: it may page and answer slowly", bool(a.model), a.yes,
+                     f"{model} needs about {md['ram_gb']} GB of memory", "use --model mlx-q3, or --model mlx-q4 --yes to install it anyway", "  Install it anyway?")
+    ctx = a.context or fam["default_context"]
+    if ctx < 4096 or ctx > 262144:
+        fail(f"--context {ctx} is outside what DiffusionGemma takes", "use 4096 up to 262144 (32768 is the default; past 131072 is untested)")
+    if ctx > 131072:
+        warn(f"context {ctx:,}: past 131,072 it is untested on a Mac")
+    mode = getattr(a, "mode", None) or "diffusion"
+    ok(f"context: {ctx:,} tokens; mode: {mode}")
+    own = getattr(a, "gguf_dir", None)
+    paths = dgemma_paths(a, model)
+    mlx = paths["folder"]
+    if own:
+        mlx = Path(own).expanduser()
+        problem = dgemma_own_folder_problem(mlx)
+        if problem:
+            fail(problem, "--model-path takes a folder made by mlx_vlm.convert or downloaded from mlx-community")
+        ok(f"your MLX folder: {mlx}")
+    _dl, need = dgemma_needs_gb(fam, model, paths, bool(own))
+    free = dgemma_free_gb(paths["models"])
+    if need and free < need:
+        fail(f"not enough free disk space in {paths['models']}: need ~{need:.0f} GB, {free:.0f} GB free"
+             + (f" (the {fam['source_gb']:.0f} GB source, the ~{md['disk_gb']:.0f} GB result and {DGEMMA_HEADROOM_GB:.0f} GB to work in)" if md["convert"] else ""),
+             "use --data-dir on a bigger drive")
+    ok(f"free disk: {free:.0f} GB at {paths['models']}")
+    if getattr(a, "check", False):
+        return 0
+
+    step(2, "the sidecar's Python environment")
+    if not DGEMMA_ENGINE.is_file():
+        fail(f"{DGEMMA_ENGINE} is missing", "update Strata or reinstall it")
+    py = dgemma_runtime(fam, paths["runtime"])
+
+    step(3, f"the model {model}")
+    source_dirs = ()
+    if own:
+        ok(f"{mlx} is used as it is")
+    elif md["convert"]:
+        if dgemma_own_folder_problem(mlx) is None:
+            ok(f"the 3-bit copy is already made: {mlx}")
+        else:
+            dgemma_fetch(fam["source_hf"], paths["source"], fam["source_sha256"], fam["source_small"], "BF16 model")
+            ok(f"BF16 source: {paths['source']}")
+            dgemma_convert(py, paths["source"], mlx, md["bits"])
+            ok(f"3-bit copy: {mlx}")
+        source_dirs = (paths["source"],)
+    else:
+        dgemma_fetch(fam["hf"], mlx, fam["sha256"], fam["small"], "MLX 4-bit")
+        ok(f"model: {mlx}")
+
+    step(4, "tokenizer and chat template")
+    tok = dgemma_tokenizer(mlx, paths["pack"], source_dirs)
+    ok(f"tokenizer: {tok}")
+    if source_dirs and paths["source"].is_dir():       # the BF16 download is only for the conversion: deleted on a yes (--yes), never without one
+        interactive = sys.stdin.isatty()
+        if a.yes or interactive:
+            delete = ask(f"Delete the {fam['source_gb']:.0f} GB BF16 download now that the 3-bit copy is made?", ["y", "n"], "y", a.yes) == "y"
+        else:
+            delete = False
+        if delete:
+            shutil.rmtree(paths["source"])
+            ok("the BF16 download is deleted")
+        else:
+            say(f"  The BF16 download is kept in {paths['source']}" + ("" if interactive else " (--yes deletes it)") + "; delete that folder when you do not need it.")
+
+    step(5, "writing the start script")
+    port = a.port or 8080
+    launcher = dgemma_launcher(paths["runtime"], py)
+    ok(f"launcher: {launcher}")
+    cfg = dgemma_config(fam, model, launcher, mlx, tok, ctx, mode, port)
+    if a.host:
+        cfg["host"] = a.host
+    if a.api_key:
+        cfg["api_key"] = a.api_key
+    if a.browser is not None:
+        cfg["open_browser"] = a.browser
+    cfg_path = home() / f"strata-{paths['tag'].lower()}.json"
+    write_setup_config(cfg_path, cfg, None, explicit_args(a))
+    script = write_run_script(paths["tag"], cfg_path, port, cfg.get("open_browser") is not False)
+    ok(f"start script: {script.name}")
+    say()
+    say("All set.")
+    say(f"  API (OpenAI):     http://127.0.0.1:{port}/v1   (any API key; model name: {fam['name']})")
+    say(f"  API (Anthropic):  http://127.0.0.1:{port}/v1/messages")
+    say(f"  Next time:        run {script.name}, or strata launch --family {family} --model {model}")
+    if ram and ram <= 16.5:
+        say("  16 GB Mac:        Strata never changes iogpu.wired_limit_mb (it needs sudo); the docs name it as an optional step")
+    if a.no_start:
+        return 0
+    return start(cfg_path, port)
+
+
+def sidecar_setup(a) -> int:
+    """setup.py --family diffusiongemma: --check and the plan work on any computer; the install needs the Mac."""
+    if getattr(a, "mode", None) and a.mode not in DGEMMA_MODES:
+        fail(f"--mode {a.mode} is not one of: " + ", ".join(DGEMMA_MODES))
+    if getattr(a, "check", False):
+        host = dgemma_host()
+        for line in dgemma_plan_lines(a, a.model, host):
+            say(line if line.startswith(" ") else "  " + line)
+        return 0 if host["mac"] else 1
+    return install_diffusiongemma(a)
+
+
 def main() -> int:
     try:                                               # files made by a run as administrator still belong to the user
         from strata_control import private_files as _pf
         _pf.adopt_user_defaults()
     except Exception:
         pass
-    if sys.platform == "darwin" and not CONTROL:       # a Mac: metal/setup_mac.py (the Metal engine); the app (Control mode) goes on below
+    asked_family = next((sys.argv[i + 1] for i, x in enumerate(sys.argv[:-1]) if x == "--family"), None) or \
+        next((x.split("=", 1)[1] for x in sys.argv if x.startswith("--family=")), None)
+    if sys.platform == "darwin" and not CONTROL and asked_family not in SIDECAR_FAMILIES:   # a Mac: metal/setup_mac.py (the Metal engine); the app (Control mode) goes on below; DiffusionGemma has no Metal engine of ours
         return mac_setup(sys.argv[1:])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES) + list(MULTI_FILE_FAMILIES),
+    ap.add_argument("--family", choices=list(FAMILIES) + list(PREVIEW_FAMILIES) + list(MULTI_FILE_FAMILIES) + list(SIDECAR_FAMILIES),
                     help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5, qwen36 = Qwen3.6-35B-A3B (pictures with --vision, "
                          "several requests at once with --parallel; docs/QWEN36.md), deepseek41 = DeepSeek-V4.1-Flash "
-                         "(the official 1.75 / 2.00 / 2.25 bpw versions, 239 / 257 / 274 GB; docs/DEEPSEEK41.md)")
+                         "(the official 1.75 / 2.00 / 2.25 bpw versions, 239 / 257 / 274 GB; docs/DEEPSEEK41.md), "
+                         "diffusiongemma = DiffusionGemma 26B-A4B on an Apple-silicon Mac (MLX; --model mlx-q3 or mlx-q4, --mode diffusion|ar)")
     ap.add_argument("--model", type=model_alias, choices=list(dict.fromkeys([*MODELS, *(m for f in PREVIEW_FAMILIES.values()
                                                                        for m in f["models"]),
-                                                          *(m for f in MULTI_FILE_FAMILIES.values() for m in f["models"])])))
+                                                          *(m for f in MULTI_FILE_FAMILIES.values() for m in f["models"]),
+                                                          *(m for f in SIDECAR_FAMILIES.values() for m in f["models"])])))
     ap.add_argument("--context", type=int)
+    ap.add_argument("--mode", choices=list(DGEMMA_MODES),
+                    help="DiffusionGemma: diffusion = a block of text at a time (the default), ar = one token at a time. "
+                         "Written to the run config as \"mode\"")
+    ap.add_argument("--model-path", dest="gguf_dir", default=argparse.SUPPRESS, help=argparse.SUPPRESS)   # DiffusionGemma: an MLX folder you already have (the same as --gguf-dir)
     ap.add_argument("--rope-scaling", choices=["none", "linear", "yarn"],
                     help="the RoPE extension for a context past the model's trained 262144: linear (position "
                          "interpolation) or yarn - llama.cpp's types. Omitted with a scaled context, the setup "
@@ -10096,11 +10537,17 @@ def main() -> int:
                          "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
     ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
-    if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and a.family not in MULTI_FILE_FAMILIES:
-        ap.error(f"--model {a.model} is a size of " + ", ".join(f"--family {f}" for f, d in {**PREVIEW_FAMILIES, **MULTI_FILE_FAMILIES}.items()
+    if a.model and a.model not in MODELS and a.family not in PREVIEW_FAMILIES and a.family not in MULTI_FILE_FAMILIES and a.family not in SIDECAR_FAMILIES:
+        ap.error(f"--model {a.model} is a size of " + ", ".join(f"--family {f}" for f, d in {**PREVIEW_FAMILIES, **MULTI_FILE_FAMILIES, **SIDECAR_FAMILIES}.items()
                                                               if a.model in d["models"]))
+    if a.family in SIDECAR_FAMILIES and a.model and a.model not in SIDECAR_FAMILIES[a.family]["models"]:
+        ap.error(f"--family {a.family} has no {a.model} model; its models: " + ", ".join(SIDECAR_FAMILIES[a.family]["models"]))
+    if a.mode and a.family not in SIDECAR_FAMILIES:
+        ap.error("--mode is a DiffusionGemma setting: use it with --family diffusiongemma")
     if a.source:
         os.environ["STRATA_SOURCE"] = a.source
+    if a.family in SIDECAR_FAMILIES:                   # DiffusionGemma: MLX on a Mac, its own steps; --check / the plan work on any computer
+        return sidecar_setup(a)
     if a.prepare_pack:                                 # an Intel Arc card: the model's pack, nothing else (no engine, no download of the model)
         return prepare_pack_only(a)
     if a.inspect:                                      # headers only: nothing is installed
@@ -10498,6 +10945,8 @@ def main() -> int:
             say("  " + tier_note(ram, low_ram_vram(gpu)))
         family = allf[int(ask("Which model?", [str(i) for i in range(1, len(allf) + 1)],
                               str(allf.index(rec_fam) + 1), a.yes)) - 1]
+    if family in SIDECAR_FAMILIES:                     # (reached only if the menu ever lists it: main() hands --family over before)
+        return sidecar_setup(a)
     if family in OWN_PATH_FAMILIES:                    # Qwen3.6: its own engine path, its own steps 2-7
         return install_own_path(a, family, gpu, hip, amd, cuda_tk, multi, port, ram, adopted)
     if family in MULTI_FILE_FAMILIES:                  # DeepSeek-V4.1-Flash: nine shards, its own engine, several cards

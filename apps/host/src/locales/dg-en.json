@@ -1,0 +1,8 @@
+{
+ "dg01": "Mode (DiffusionGemma)",
+ "dg02": "Diffusion writes a block of words at once and keeps improving it over several steps; that touches many more of the model’s experts at each step. One token at a time writes word by word, as most models do, and may suit a Mac with 16 GB of memory better. We have not measured which is faster or better on your Mac. Left alone, Diffusion is used. Applies the next time the model loads.",
+ "dg03": "Default (Diffusion)",
+ "dg04": "Diffusion",
+ "dg05": "One token at a time",
+ "dg06": "Still being written. This preview changes until it is final."
+}

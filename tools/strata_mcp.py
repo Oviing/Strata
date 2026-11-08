@@ -564,13 +564,16 @@ class Strata:
         for f, d in (getattr(s, "MULTI_FILE_FAMILIES", None) or {}).items():     # DeepSeek-V4.1-Flash: nine shards, its own engine
             out[f] = {"title": d["title"], "about": d.get("about"), "tag": d["tag"], "license": d.get("license"),
                       "vision": bool(d.get("vision", False)), "own_path": True, "multi_file": True}
+        for f, d in (getattr(s, "SIDECAR_FAMILIES", None) or {}).items():       # DiffusionGemma: MLX on a Mac, a Python engine of its own (setup.py SIDECAR_FAMILIES)
+            out[f] = {"title": d["title"], "about": d.get("about"), "tag": d["tag"], "license": d.get("license"),
+                      "vision": False, "own_path": True, "sidecar": True, "mac_only": bool(d.get("mac_only"))}
         return out
 
     def own_size_names(self) -> list:
         """The size names of the families that have an engine path of their own (Qwen3.6, DeepSeek-V4.1-Flash): the install tool accepts them as `model`."""
         s = self.setup_module()
         names = []
-        for table in ("OWN_PATH_FAMILIES", "MULTI_FILE_FAMILIES"):
+        for table in ("OWN_PATH_FAMILIES", "MULTI_FILE_FAMILIES", "SIDECAR_FAMILIES"):
             for fam in (getattr(s, table, None) or {}).values():
                 names.extend(n for n in fam.get("models", {}) if n not in names)
         return names
@@ -579,9 +582,46 @@ class Strata:
         """setup.py's MULTI_FILE_FAMILIES entry (DeepSeek-V4.1-Flash), else None."""
         return (getattr(self.setup_module(), "MULTI_FILE_FAMILIES", None) or {}).get(family)
 
+    def sidecar_family(self, family) -> dict | None:
+        """setup.py's SIDECAR_FAMILIES entry (DiffusionGemma), else None."""
+        return (getattr(self.setup_module(), "SIDECAR_FAMILIES", None) or {}).get(family)
+
+    def sidecar_words(self, hw: dict | None, family: str, model: str) -> str:
+        """The fit words of a sidecar size on this computer: it runs on an Apple-silicon Mac only, by that Mac's unified memory."""
+        d = self.sidecar_family(family)["models"][model]
+        if not (hw or {}).get("mac"):
+            return "does not fit: needs an Apple-silicon Mac (this computer cannot run it)"
+        ram = float((hw or {}).get("ram_gb") or 0)
+        if not ram:
+            return ""
+        S = self.setup_module()
+        floor = getattr(S, "DGEMMA_MIN_RAM_GB", 16.0) - 0.5
+        if ram < floor:
+            return f"does not fit: needs at least {floor + 0.5:.0f} GB of memory, this Mac has {ram:.0f} GB"
+        if ram < d["ram_gb"] - 0.5:
+            return f"tight: needs about {d['ram_gb']} GB of memory, this Mac has {ram:.0f} GB"
+        return "fits"
+
+    def sidecar_recommend(self, hw: dict, family: str = "diffusiongemma") -> dict:
+        """The size setup preselects for this Mac's memory (setup.sidecar_default_model: mlx-q4 from 32 GB, else mlx-q3); no model off a Mac."""
+        fam = self.sidecar_family(family)
+        if not fam:
+            return {"family": None, "model": None, "why": "this Strata has no " + family}
+        if not (hw or {}).get("mac"):
+            return {"family": None, "model": None, "why": self.sidecar_words(hw, family, next(iter(fam["models"])))}
+        ram = float(hw.get("ram_gb") or 0)
+        model = self.setup_module().sidecar_default_model(fam, ram)
+        return {"family": family, "model": model, "title": fam["title"] + " " + model, "download_gb": fam["models"][model]["download_gb"],
+                "why": f"{ram:.0f} GB of unified memory: {model} is the size setup preselects (mlx-q4 from 32 GB, mlx-q3 below)"}
+
     def own_size(self, family, model) -> dict | None:
         """One size of an own-path family as a model-table row for install_plan / model_table (None: not an own-path size).
         The download is the GGUF; the picture reader (mmproj, ~0.9 GB) is counted by the plan when pictures are on."""
+        side = self.sidecar_family(family)
+        if side and model in side["models"]:                   # DiffusionGemma: MLX files; the 3-bit size is made on the Mac from the BF16 download
+            sd = side["models"][model]
+            return {"about": sd["about"], "download_gb": sd["download_gb"], "ram_gb": sd["ram_gb"], "arena_gb": sd["disk_gb"], "mem_total": True,
+                    "vision": False, "engine": None, "families": (family,), "sidecar": True, "disk_gb": sd["disk_gb"]}
         big = self.multi_family(family)
         if big and model in big["models"]:
             # nine shards; the memory the weights need is VRAM + RAM together WITHOUT the n-gram table (it stays on the SSD)
@@ -600,7 +640,7 @@ class Strata:
 
     def sizes_of(self, models, family) -> list:
         """The family's sizes as setup lists them: an experimental one last (never the default)."""
-        own = (getattr(self.setup_module(), "OWN_PATH_FAMILIES", None) or {}).get(family) or self.multi_family(family)
+        own = (getattr(self.setup_module(), "OWN_PATH_FAMILIES", None) or {}).get(family) or self.multi_family(family) or self.sidecar_family(family)
         if own:
             return list(own["models"])
         return sorted((m for m in models if family in models[m].get("families", ("qwen", "swift"))),
@@ -1146,7 +1186,8 @@ class Strata:
         return {"family": "qwen", "model": model, "title": families["qwen"]["title"] + " " + model, "context": ctx,
                 "backend": "metal", "gpu": {k: usable[0].get(k) for k in ("index", "name", "vram_gb")},
                 "download_gb": models[model]["download_gb"], "why": why, "notes": notes,
-                "setup_command": f"./setup.sh --setup --yes --family qwen --model {model} --context {ctx}"}
+                "setup_command": f"./setup.sh --setup --yes --family qwen --model {model} --context {ctx}",
+                "sidecar": self.sidecar_recommend(hw)}
 
     def _mac_model_table(self, hw: dict) -> list:
         models, families, _ctx, _src = self.tables()
@@ -1172,7 +1213,25 @@ class Strata:
         ds = self._mac_deepseek(hw, have)                # DeepSeek-V4.1-Flash on the Mac (0.2.7.1): after Qwen, never the default
         if ds is not None:
             out.append(ds)
+        dg = self._mac_sidecar(hw, have)                 # DiffusionGemma (MLX): after DeepSeek, never the default
+        if dg is not None:
+            out.append(dg)
         return out
+
+    def _mac_sidecar(self, hw: dict, have: set, family: str = "diffusiongemma") -> dict | None:
+        """DiffusionGemma for a Mac: its two MLX sizes with the Mac's memory words.  None when setup.py has no such family (an older Terminal)."""
+        fam = self.sidecar_family(family)
+        if not fam:
+            return None
+        sizes = []
+        for m in fam["models"]:
+            d = self.own_size(family, m)
+            tag = (fam.get("tag", "") + m).lower()
+            sizes.append({"model": m, "about": d["about"], "download_gb": d["download_gb"], "experimental": False, "images": False,
+                          "ram_needed_gb": d["ram_gb"], "experts_gb": None, "mem_total": True, "sidecar": True, "disk_gb": d["disk_gb"],
+                          "engine_min": None, "memory_gb": float(d["ram_gb"]), "on_this_pc": self.sidecar_words(hw, family, m) or None,
+                          "installed": tag in have, "id": tag, "gpu_options": None})
+        return {"family": family, "title": fam["title"], "about": fam.get("about"), "experimental": False, "images": False, "sizes": sizes}
 
     def dsv41_engine_exe(self) -> Path | None:
         """The installed strata-dsv41 (STRATA_DSV41_EXE, else the newest package in the engine-dsv41 folders of this install), None when there is none; only looked at, never started."""
@@ -1338,7 +1397,9 @@ class Strata:
                     have_gb = ram + vram if d.get("mem_total") else ram     # Gyro: VRAM and RAM together
                     verdict = "fits" if have_gb >= d["ram_gb"] else "tight" if have_gb >= d["ram_gb"] - 8 else "does not fit"
                     try:
-                        if own and own.get("multi_file"):       # DeepSeek-V4.1-Flash: strata_control/dsv41_fit.py (cards + RAM, the n-gram table on the SSD)
+                        if own and own.get("sidecar"):           # DiffusionGemma: an Apple-silicon Mac only; this PC's cards do not count
+                            verdict = self.sidecar_words(hw, f, m)
+                        elif own and own.get("multi_file"):       # DeepSeek-V4.1-Flash: strata_control/dsv41_fit.py (cards + RAM, the n-gram table on the SSD)
                             verdict = self.dsv41_words(hw, m, installed=tag in have)
                         elif own:                       # its own engine path: no budget or low-RAM mode of Flash-Next's to judge by
                             pass
@@ -1364,6 +1425,7 @@ class Strata:
                               # RAM + VRAM the weights need together, WITHOUT the n-gram table (that stays on the SSD): Gyro states it
                               # (mem_total), for the rest the experts plus ~1 GB for the dense part (Swift IQ2_XS: 35.5 + 1 = 36.5)
                               "mem_total": bool(d.get("mem_total")), "multi_file": bool(own and own.get("multi_file")),
+                              "sidecar": bool(own and own.get("sidecar")),
                               # DeepSeek only: the free disk the set needs, from the set itself (the download: model files, n-gram table, drafter and
                               # metadata, plus the pack folder and room to work, strata_control/dsv41_fit.DISK_HEADROOM_GB): 2.00 and 2.25 differ
                               "disk_gb": self.dsv41_disk_gb(d) if own and own.get("multi_file") else None,
@@ -1378,7 +1440,7 @@ class Strata:
                               # which graphics cards to use for it (strata_control/gpu_fit.py, the one rule app / Terminal / setup share):
                               # only with two or more cards that count; "recommended" names the pre-selected option
                               "gpu_options": (self.dsv41_options(hw, m) if own and own.get("multi_file")
-                                              else None if own else self.gpu_options(d, ram, hw))})   # Qwen3.6 runs on one card so far
+                                              else None if own else self.gpu_options(d, ram, hw))})   # Qwen3.6 and DiffusionGemma run on one card / the Mac's GPU
             out.append({"family": f, "title": fd["title"], "about": fd.get("about"),
                         "experimental": bool(fd.get("experimental")),
                         "images": any(x["images"] for x in sizes) if sizes else fd.get("vision", True) is not False,
@@ -1678,6 +1740,14 @@ def expected_files(S, family: str, model: str, models_dir: Path, vision: bool) -
             shared = Path(models_dir) / (big["tag"] + "shared")        # the Engram, the drafter and the metadata shard of the official sets
             return ([{"path": str(folder / n), "bytes": big["sha256"][n][0], "role": "model"} for n in big["models"][model]["shards"]]
                     + [{"path": str(shared / n), "bytes": big["sha256"][n][0], "role": "model"} for n in big["models"][model].get("shared", [])])
+        side = (getattr(S, "SIDECAR_FAMILIES", None) or {}).get(family)
+        if side:                                        # DiffusionGemma: mlx-q4's pinned files in its folder; mlx-q3's BF16 source (the 3-bit copy is made from it)
+            if side["models"][model]["convert"]:
+                folder, pins, small = Path(models_dir) / (side["tag"] + "source"), side["source_sha256"], side["source_small"]
+            else:
+                folder, pins, small = Path(models_dir) / (side["tag"] + model), side["sha256"], side["small"]
+            return ([{"path": str(folder / n), "bytes": v[0], "role": "model"} for n, v in pins.items()]
+                    + [{"path": str(folder / n), "bytes": b, "role": "model"} for n, b in small.items()])
         own = (getattr(S, "OWN_PATH_FAMILIES", None) or {}).get(family)
         if own:                                         # Qwen3.6: the GGUF and the picture reader in the model's folder
             folder = Path(models_dir) / (own["tag"] + model)
@@ -2384,6 +2454,8 @@ class Tools:
         if model not in sizes:
             raise ToolError(f"{families[family]['title']} has no {model}; its sizes: {', '.join(sizes)}")
         md = s.own_size(family, model) or models[model]   # Qwen3.6-35B-A3B: its sizes are not in setup's MODELS
+        if md.get("sidecar"):                           # DiffusionGemma: MLX on an Apple-silicon Mac; none of the PC settings below apply
+            return self.sidecar_install_plan(family, model, md, context, port, data_dir, gguf_dir, hw, rec)
         mac = bool(hw.get("mac"))
         if mac:                                         # a Mac: no card to pick, no KV choice, no RAM mode: unified memory decides
             if rec.get("model") is None and model is not None and s.mac() and hw.get("ram_gb", 0) < s.mac().MIN_STREAM_RAM_GB:
@@ -2472,6 +2544,51 @@ class Tools:
             plan["license"] = families[family]["license"]
         if families[family].get("experimental") or md.get("experimental"):
             plan["experimental"] = True
+        return plan, args
+
+    def sidecar_install_plan(self, family, model, md, context, port, data_dir, gguf_dir, hw, rec):
+        """install_plan for DiffusionGemma: refused off an Apple-silicon Mac, the disk from setup's own count (the BF16 source, the result and 10 GB
+        to work in for mlx-q3), no cards, KV, low-RAM mode or pictures."""
+        s = self.s
+        S = s.setup_module()
+        _models, families, _contexts, _src = s.tables()
+        if not hw.get("mac"):
+            raise ToolError(s.sidecar_words(hw, family, model).replace("does not fit: ", "") + ". Nothing was changed; run it on a Mac with an M1 or newer chip")
+        fam = s.sidecar_family(family)
+        context = context or fam["default_context"]
+        if context < 4096 or context > 262144:
+            raise ToolError("context for DiffusionGemma: 4096 up to 262144 (32768 is the default)")
+        target = self.check_data_dir(data_dir) if data_dir else s.data_dir()
+        own = None
+        if gguf_dir:
+            own = Path(os.path.expandvars(gguf_dir)).expanduser()
+            if not own.is_absolute() or not own.is_dir() or ".." in own.parts:
+                raise ToolError("gguf_dir must be an existing absolute folder (for DiffusionGemma: an MLX model folder)")
+        ns = argparse.Namespace(data_dir=str(target), models_dir=None, gguf_dir=str(own) if own else None)
+        paths = S.dgemma_paths(ns, model, plan=True)
+        left, need = S.dgemma_needs_gb(fam, model, paths, bool(own))
+        free = s.disk_free(target)
+        short = None
+        if free is not None and need and free < need:
+            short = (f"not enough free disk space for {model}: about {need:.0f} GB needed at {target}, {free:.0f} GB free; free some space "
+                     "or choose data_dir on a bigger drive")
+        args = ["--yes", "--no-start", "--family", family, "--model", model, "--context", str(context)]
+        for flag, v in (("--port", port), ("--data-dir", str(target) if data_dir else None), ("--model-path", str(own) if own else None)):
+            if v is not None:
+                args += [flag, str(v)]
+        ram = hw.get("ram_gb")
+        fit = s.sidecar_words(hw, family, model) or None
+        installed = (s.root / f"strata-{paths['tag'].lower()}.json").exists()
+        plan = {"title": f"{families[family]['title']} {model}", "family": family, "model": model, "context": context, "images": "no",
+                "download_gb": md["download_gb"], "partly_downloaded": bool(own) or left < md["download_gb"] - 0.05,
+                "ram": fit if fit != "fits" else f"fits ({ram:.0f} GB of memory)", "data_folder": str(target), "model_folder": str(paths["folder"]),
+                "disk_free_gb": free, "disk_needed_gb": round(need), "disk_short": short, "already_installed": installed,
+                "setup_command": "./setup.sh " + " ".join(args),
+                "takes": ("about 30-120 minutes: a 52 GB download, then the conversion on this Mac" if md.get("disk_gb") and fam["models"][model]["convert"]
+                          else "about 10-40 minutes, mostly the download"),
+                "recommended_for_this_pc": s.sidecar_recommend(hw, family), "license": families[family].get("license")}
+        if installed:
+            plan["note"] = "this model is already installed: running setup again applies the options (finished steps are skipped)"
         return plan, args
 
     def launch_install(self, plan: dict, args: list) -> dict:

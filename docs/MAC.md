@@ -6,6 +6,8 @@ are replaced by Metal ones (`metal/`), and the host code and the server are the 
 DeepSeek V4.1-Flash runs on a Mac with 64 GB of memory or more, as text only: [DEEPSEEK_MAC.md](DEEPSEEK_MAC.md). It has its
 own engine, separate from the Qwen one described on this page.
 
+DiffusionGemma-26B-A4B also runs on a Mac with 16 GB or more, through a separate small engine on MLX (not the Metal engine above). It is text only and takes one request at a time. Its own requirements, and what is not measured yet, are in [DIFFUSIONGEMMA.md](DIFFUSIONGEMMA.md).
+
 > **On this page:** [What you need](#what-you-need) · [Install](#install) · [Defaults](#defaults-and-options) ·
 > [Gyro](#gyro-s-and-gyro-m-agentionais-trellis-experts) · [Measured](#measured-m5-max-128-gb) · [Limits](#limits-this-version) ·
 > [Switches](#switches) · [How it works](#how-it-works) · [History](#history--older-measurements)
