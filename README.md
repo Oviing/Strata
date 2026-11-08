@@ -86,6 +86,22 @@ Measured with the 2.00 bpw set on Strata 0.2.5 (Strix Halo: 0.2.7). Output is th
 
 </details>
 
+<details>
+<summary><b>DiffusionGemma-26B-A4B</b> &nbsp;<sub>Mac only · experimental</sub></summary>
+
+Google's text-diffusion model. It writes a block of 256 tokens at once instead of one token at a time. In Strata it
+runs on an **Apple-silicon Mac** through a small MLX engine, in the Terminal and in the app. It is text only, serves one
+request at a time, and **is not in the released installers yet**: use the [source install below](#diffusiongemma-on-a-mac).
+
+| Set | Download | Memory |
+| --- | ---: | --- |
+| `mlx-q3` (made on your Mac; default below 32 GB) | about 52 GB, then a copy of about 11 GB (estimate) | about 10 to 11 GB (estimate) |
+| `mlx-q4` (by mlx-community) | 16.6 GB | 24 GB listed |
+
+We have not run this model on a Mac yet, so there are no speed figures of our own. [Guide, limits and what is not tested](docs/DIFFUSIONGEMMA.md).
+
+</details>
+
 <a id="the-other-sizes"></a>
 
 Not sure what fits? [Choose a model for your computer](docs/MODELS.md#pick-by-memory).
@@ -143,6 +159,33 @@ Follow the prompts to download and start a model. [Terminal guide](docs/TERMINAL
   <img src="docs/media/terminal-monitor.png" width="900" alt="Strata terminal app showing model activity, speed, memory and recent requests">
   <br><sub>Watch your model and hardware while it runs.</sub>
 </p>
+
+<a id="diffusiongemma-on-a-mac"></a>
+
+### DiffusionGemma on a Mac
+
+DiffusionGemma is not in the released app or Terminal yet. Use a source checkout on an Apple-silicon Mac (macOS 14 or
+newer, Python 3.10 or newer). `dgemma-strata` is a second copy of the `strata` command. It keeps its files in
+`~/.dgemma-strata` and uses port 8090, so an installed Strata is left alone.
+
+```sh
+git clone https://github.com/Oviing/Strata.git
+cd Strata
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+export STRATA_PYTHON="$PWD/.venv/bin/python"
+
+# See what would happen. It changes nothing and works on any computer.
+bin/dgemma-strata launch --plan --family diffusiongemma --model mlx-q3 --port 8090
+
+# Set up and serve. Downloads about 52 GB and needs about 73 GB of free disk.
+bin/dgemma-strata launch --family diffusiongemma --model mlx-q3 --port 8090 --yes --no-tui
+```
+
+Then connect a tool with `bin/dgemma-strata connect <app> --url http://127.0.0.1:8090 --check`, or use the
+[desktop app](docs/DIFFUSIONGEMMA.md#the-app). Stop it with `bin/dgemma-strata launch --stop`. Add `--mode ar` to write
+one token at a time instead of a block.
+
+On a 16 GB Mac the 3-bit copy is a tight fit, and this path has not been run on a Mac yet. [What is and is not tested](docs/DIFFUSIONGEMMA.md#not-tested-yet).
 
 <a id="build-from-source"></a>
 
