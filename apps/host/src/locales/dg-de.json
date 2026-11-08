@@ -1,0 +1,8 @@
+{
+ "dg01": "Modus (DiffusionGemma)",
+ "dg02": "Diffusion schreibt einen Textblock auf einmal und verbessert ihn in mehreren Schritten; dabei werden in jedem Schritt viel mehr Experten des Modells genutzt. „Ein Token nach dem anderen“ schreibt Wort für Wort wie die meisten Modelle und passt vielleicht besser zu einem Mac mit 16 GB Speicher. Wir haben nicht gemessen, was auf deinem Mac schneller oder besser ist. Ohne Auswahl wird Diffusion verwendet. Gilt beim nächsten Laden des Modells.",
+ "dg03": "Standard (Diffusion)",
+ "dg04": "Diffusion",
+ "dg05": "Ein Token nach dem anderen",
+ "dg06": "Wird noch geschrieben. Diese Vorschau ändert sich, bis sie final ist."
+}

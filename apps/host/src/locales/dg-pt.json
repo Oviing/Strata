@@ -1,0 +1,8 @@
+{
+ "dg01": "Modo (DiffusionGemma)",
+ "dg02": "A difusão escreve um bloco de texto de uma vez e o melhora em vários passos; assim, muito mais especialistas do modelo são usados a cada passo. «Um token de cada vez» escreve palavra por palavra, como a maioria dos modelos, e pode servir melhor para um Mac com 16 GB de memória. Não medimos qual é mais rápido ou melhor no seu Mac. Sem escolha, a difusão é usada. Vale na próxima vez que o modelo for carregado.",
+ "dg03": "Padrão (Difusão)",
+ "dg04": "Difusão",
+ "dg05": "Um token de cada vez",
+ "dg06": "Ainda está sendo escrito. Esta prévia muda até ficar final."
+}

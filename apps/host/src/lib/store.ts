@@ -1,3 +1,4 @@
+import { clearDraft, setDraft } from './canvas-draft';
 import { workspaceIdForSession } from './session-workspace';
 import { shortTitle } from './title-text';
 import { DEFAULT_CONTENT_FS, DEFAULT_UI_SCALE, SIZE_DEFAULTS_VERSION, savedSizes } from './default-sizes';
@@ -2076,6 +2077,8 @@ export async function sendMessage(text: string, options: { fromLoop?: boolean; g
         // A line from the app itself carries `key` (the English sentence): shown in the person's language.
         if (frame.type === 'delta' && typeof frame.key === 'string') frame = { ...frame, text: tr(frame.key, Array.isArray(frame.values) ? frame.values : undefined) };
         const type = frame.type as string;
+        // DiffusionGemma's canvas so far: a preview kept outside the saved chat, replaced each time, cleared when the turn ends.
+        if (type === 'draft') { setDraft(sessionId, frame.text); return; }
         if (type === 'delta' || type === 'reasoning') { queueText(type, String(frame.text ?? '')); return; }
         flushWaiting();
         if (type === 'start' && frame.agent === true) { const turn = liveTurns.get(sessionId); if (turn) turn.agent = true; }
@@ -2233,6 +2236,7 @@ export async function sendMessage(text: string, options: { fromLoop?: boolean; g
     }
   } finally {
     flushWaiting();
+    clearDraft(sessionId);
     // A cancelled or failed turn is still worth keeping.
     flushSessions();
     clearStatus(sessionId);

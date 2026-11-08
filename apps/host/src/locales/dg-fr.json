@@ -1,0 +1,8 @@
+{
+ "dg01": "Mode (DiffusionGemma)",
+ "dg02": "La diffusion écrit un bloc de texte d’un coup et l’améliore en plusieurs étapes ; à chaque étape, bien plus d’experts du modèle sont utilisés. « Un jeton à la fois » écrit mot après mot, comme la plupart des modèles, et peut mieux convenir à un Mac de 16 Go de mémoire. Nous n’avons pas mesuré lequel est le plus rapide ou le meilleur sur votre Mac. Sans choix, la diffusion est utilisée. S’applique au prochain chargement du modèle.",
+ "dg03": "Par défaut (diffusion)",
+ "dg04": "Diffusion",
+ "dg05": "Un jeton à la fois",
+ "dg06": "Encore en cours d’écriture. Cet aperçu change jusqu’à ce qu’il soit définitif."
+}

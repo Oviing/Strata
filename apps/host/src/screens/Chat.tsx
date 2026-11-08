@@ -21,6 +21,7 @@ import { ComposerControls } from '../components/ComposerControls';
 import { ChatPhotos } from '../components/ChatPhotos';
 import { useChatPhotos, removeChatPhoto } from '../lib/chat-photos';
 import { useNative } from '../lib/native';
+import { DraftCanvas } from '../components/DraftCanvas';
 import { COMPACT_FILES_FROM, mainResult, previewOf } from '../lib/deliverables';
 import { noModelNotice } from '../lib/no-model';
 import { ReasoningBlock } from '../components/ReasoningBlock';
@@ -777,6 +778,7 @@ function MessageView({ message: m, isLast, onEditPrompt, onPreview, onClosePrevi
         {/* the caret follows the text being written; after an activity line it hung on a row of its own and the reply jumped when the text went on */}
         {tr(m.streaming && m.content && !m.drafts?.length && (!grouped || m.blocks!.at(-1)?.kind === 'text') ? <span className="caret" aria-hidden="true"/> : null)}
       </div> : null)}
+      {m.streaming && isLast && m.role === 'assistant' ? <DraftCanvas sessionId={activeSession}/> : null}
       {tr(m.skills?.length && !m.streaming ? <SkillsUsed skills={m.skills}/> : null)}
       {tr(m.deliverables?.length && !m.streaming ? <div className="deliverables">{m.deliverables.length >= COMPACT_FILES_FROM ? <FilesSummary files={m.deliverables} answer={m.content} sessionId={activeSession ?? ''} onPreview={onPreview}/> : <>{m.deliverables.map(f => <FileCard key={f.path} file={f} sessionId={activeSession ?? ''} onPreview={onPreview}/>)}<EditedFiles files={m.deliverables} sessionId={activeSession ?? ''} onPreview={onPreview}/></>}</div> : null)}
       {tr(m.streaming && isLast && !m.timeSkipId ? <StatusLine sessionId={activeSession} startedAt={Date.parse(m.at) || Date.now()} tokens={m.tokens}/> : null)}

@@ -278,6 +278,7 @@ export async function proxyCompletion({ baseUrl, message, history = [], systemPr
   let streaming = true;
   let writing = false;
   let timings=null,finishReason=null;
+  let drafting=false;
   /* The speed shown while it streams is the decode speed of everything generated, reasoning included, from the first token: tokens
      (one per streamed chunk, or characters / 4 when the server batches) over the time since the first token, never the visible
      answer over the whole wall time. The engine's own numbers replace it when the answer is done. */
@@ -328,6 +329,8 @@ export async function proxyCompletion({ baseUrl, message, history = [], systemPr
         if (!delta) continue;
 
         // Qwen3-style thinking models stream reasoning separately.
+        // DiffusionGemma: the whole canvas as it stands now (not a piece); the page shows it faded and replaces it each time. Never part of the answer.
+        if (typeof delta.strata_draft === 'string' && extra?.strata?.drafts === true) { drafting = true; onFrame({ type: 'draft', text: delta.strata_draft }); }
         if (delta.reasoning_content) {
           if (firstTokenAt === null) engine?.beginThinking();
           if (firstTokenAt === null) firstTokenAt = Date.now();
@@ -351,6 +354,7 @@ export async function proxyCompletion({ baseUrl, message, history = [], systemPr
     reader.releaseLock();
   }
 
+  if (drafting) onFrame({ type: 'draft', text: '' });
   signal?.throwIfAborted();
   const durationMs = Date.now() - started;
   const decodeMs = firstTokenAt ? Date.now() - firstTokenAt : durationMs;
