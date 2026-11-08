@@ -1159,6 +1159,8 @@ class StrataEngine:
         self.max_context = int(args[args.index("--max-context") + 1]) if "--max-context" in args else 4096
         self.can_stop = False            # the engine honours a STOP line mid-request (READY <ctx> stop)
         self.last = {}
+        self.draft_decode = None         # DiffusionGemma: ids -> text for DRAFT lines (Service.set_family)
+        self.draft_text, self.draft_seq = "", 0
         self.info = {}                   # INFO key=value facts (engine 0.1.8+): kv, expert slots, ... (Monitor tab)
         self.terminal_stages: list[dict] = []  # final layer ranges from this engine start's bounded stderr log
         self.terminal_batch_sample: dict | None = None
@@ -1579,9 +1581,14 @@ class StrataEngine:
             self.last.update(offloaded=int(f[15]))
         for tok in f[16:]:                                # key=value fields after the positional ones (the prompt's
             key, eq, value = tok.partition("=")           # first chunk and its streamed expert blobs)
-            if eq and key in ("chunk", "experts_streamed"):
+            if eq and key in ("chunk", "experts_streamed", "steps", "canvases"):   # steps / canvases: DiffusionGemma's sidecar
                 try:
                     self.last[key] = int(value)
+                except ValueError:
+                    pass
+            elif eq and key == "tpf":                     # tokens per forward (the sidecar)
+                try:
+                    self.last[key] = float(value)
                 except ValueError:
                     pass
 
@@ -1644,6 +1651,31 @@ class StrataEngine:
         if self.split_engine or prompt_len <= orig_len:
             return ""
         return f" pen_from={orig_len - 1}"
+
+    DGEMMA_INT_KEYS = ("max_denoising_steps", "seed")
+    DGEMMA_FLOAT_KEYS = ("entropy_bound", "stop_entropy")
+
+    def dgemma_keys(self, sampling: dict) -> str:
+        """DiffusionGemma's sidecar only (INFO arch=diffusion_gemma): the request's max_denoising_steps, entropy_bound,
+        stop_entropy and mode, and `"strata": {"drafts": true}` (the live canvas), as GEN keys.  Other engines get none of
+        them: they would refuse the unknown key."""
+        if (getattr(self, "info", None) or {}).get("arch") != "diffusion_gemma" or not isinstance(sampling, dict):
+            return ""
+        keys = ""
+        for k in self.DGEMMA_INT_KEYS:
+            v = sampling.get(k)
+            if k != "seed" and isinstance(v, int) and not isinstance(v, bool) and v > 0:   # seed: sampling_keys sends it
+                keys += f" {k}={v}"
+        for k in self.DGEMMA_FLOAT_KEYS:
+            v = sampling.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0:
+                keys += f" {k}={float(v)!r}"
+        if sampling.get("mode") in ("diffusion", "ar"):
+            keys += f" mode={sampling['mode']}"
+        opts = sampling.get("strata")
+        if isinstance(opts, dict) and opts.get("drafts") is True:
+            keys += " drafts=1"
+        return keys
 
     @staticmethod
     def sampling_keys(sampling: dict) -> str:
@@ -2772,7 +2804,8 @@ class StrataEngine:
         # an image request takes the same sampling keys as text (#75: it used to decode greedily whatever was asked)
         rid_key = f" rid={rid}" if rid is not None else ""
         head = f"GENI {int(max_new)}{self.sampling_keys(sampling or {})}{rid_key} {embeddings}" if embeddings else \
-            f"GEN {int(max_new)}{self.sampling_keys(sampling or {})}{rid_key}"
+            f"GEN {int(max_new)}{self.sampling_keys(sampling or {})}{self.dgemma_keys(sampling or {})}{rid_key}"
+        self.draft_text, self.draft_seq = "", 0          # DiffusionGemma's live canvas (DRAFT lines), per request
         if prefill_only:                                 # split serving (serve/split.py): read the prompt, make no token
             if embeddings or int(max_new) != 0:
                 raise ValueError("prefill_only is a text prompt and max_new 0")
@@ -2860,6 +2893,16 @@ class StrataEngine:
                             allow = max(silence, PP_SLACK * chunk / rate)
                     if cancel.is_set():                   # lines reset the 10 s wait, so without this a long prompt
                         return                            # would send no keep-alives at all)
+                    yield None
+                elif line.startswith("DRAFT "):           # the sidecar's current canvas (asked for with drafts=1): the text, whole
+                    try:
+                        if self.draft_decode is not None:
+                            self.draft_text = self.draft_decode([int(x) for x in line[6:].split(",") if x.strip()])
+                            self.draft_seq += 1
+                    except (ValueError, IndexError):
+                        pass
+                    if cancel.is_set():
+                        return
                     yield None
                 elif line.startswith("RESUME "):          # the reused tokens: the first chunk starts after them
                     try:
@@ -4910,6 +4953,18 @@ class Service:
             self.stop_ids = {int(eos)}
             self.parser_cls = dsml.DsmlOutputParser
             self._force_text = dsml.to_dsml_force
+        elif family == "diffusion_gemma":
+            from serve import gemma4
+            sp = getattr(self.tok, "special_ids", None) or {}
+            ids = {int(sp.get("eos", 1))}
+            end = self.tok.encode("<turn|>", parse_special=True)          # 106: the end of a turn
+            if len(end) == 1:
+                ids.add(int(end[0]))
+            self.stop_ids = ids
+            self.parser_cls = gemma4.Gemma4OutputParser
+            self._force_text = gemma4.to_gemma4_force
+            if hasattr(self.engine, "draft_decode"):
+                self.engine.draft_decode = self.tok.decode
         import serve.frontend as _frontend
         _frontend.use_family(family)
 
@@ -5806,6 +5861,11 @@ class Service:
         thinking) is rendered as a default one up to the answer - the same prompt start, so the conversation cache
         keeps it - and its effort follows in a short system turn right before the answer (thinking off: the template's
         empty thinking block).  The engine (--tail-role-token) checkpoints in front of that turn."""
+        if self.family == "diffusion_gemma":
+            # the server thinks unless told not to (Gemma's template defaults to off); the template writes {{ bos_token }} first
+            kwargs = {"enable_thinking": True, "bos_token": "<bos>", **kwargs}
+            if tools:                                        # its declarations read tool["function"]["name"], the OpenAI form
+                tools = [t if "function" in t else {"type": "function", "function": t} for t in tools]
         effort = kwargs.get("reasoning_effort")
         off = kwargs.get("enable_thinking") is False
         if not self.effort_end or (not off and effort in (None, "", "xhigh", "high")):
@@ -7182,8 +7242,19 @@ def openai_chunks(svc: Service, req: dict, ids, thinking, tools, max_new, cancel
     finished = set()                               # ... and the ones whose final tool_call came (#211)
     answered_done = False                          # the run's own end (its "done" event) arrived
     born = getattr(svc.engine, "gen", None)        # the engine process this request is on (read again with every event: a start inside the run is its own)
+    # DiffusionGemma's live canvas: only when the request asks (`"strata": {"drafts": true}`); the whole current canvas text, not a delta
+    opts = req.get("strata")
+    want_drafts = isinstance(opts, dict) and opts.get("drafts") is True and getattr(svc.engine, "draft_decode", None) is not None
+    draft_seen = 0
     for kind, x in run if run is not None else svc.run(ids, thinking, tools, max_new, req, cancel, force=force, declared_only=True):
         born = getattr(svc.engine, "gen", born)
+        if want_drafts:
+            seq = getattr(svc.engine, "draft_seq", 0)
+            if seq < draft_seen:                    # a new engine pass of the same request (its counter started again)
+                draft_seen = 0
+            if seq != draft_seen:
+                draft_seen = seq
+                yield chunk({"strata_draft": svc.engine.draft_text})
         if kind == "ping":
             # a PP line: the prompt is being read and there is nothing to say yet.  It used to be only the SSE comment;
             # now it carries the progress when the client asked, and stays the comment when there is nothing to report.
@@ -9663,7 +9734,7 @@ def check_request_sampling(req) -> None:
 
 # the API's model name per model family (the GGUF architecture, "arch" in the config) when the config names none
 FAMILY_MODEL_NAMES = {"qwen4exp": "qwen3.8-flash-next", "qwen35moe": "qwen3.6-35b-a3b",
-                      "deepseek41": "deepseek-v4.1-flash"}
+                      "deepseek41": "deepseek-v4.1-flash", "diffusion_gemma": "diffusiongemma-26b-a4b-it"}
 
 
 # The sampling each model card recommends ("Best Practices"), used when neither the request, the Chat settings nor the
@@ -9678,6 +9749,8 @@ MODEL_CARD_SAMPLING = {
                   "instruct": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}},
     # DeepSeek-V4.1-Flash: temperature 1.0, top_p 1.0 for local use (thinking or not), no penalties
     "deepseek41": {"thinking": {"temperature": 1.0, "top_p": 1.0}, "instruct": {"temperature": 1.0, "top_p": 1.0}},
+    # DiffusionGemma-26B-A4B: the sampler's own schedule starts at temperature 0.8 (top_p / top_k / penalties are ignored in diffusion mode)
+    "diffusion_gemma": {"thinking": {"temperature": 0.8}, "instruct": {"temperature": 0.8}},
 }
 
 
@@ -10102,7 +10175,12 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
     tok = ByteTokenizer()
     tcfg = {}
     tpath = Path(a.tokenizer)
-    if a.engine == "strata" and not (tpath / "vocab.json").exists():
+    hf_tok = (cfg.get("arch") or "") == "diffusion_gemma" and (tpath / "tokenizer.json").exists() \
+        and not (tpath / "vocab.json").exists()
+    if hf_tok:                                          # Gemma 4: the Hugging Face tokenizer.json, no vocab.json / merges.txt
+        from serve import hf_tokenizer
+        tok = hf_tokenizer.load(tpath)
+    if a.engine == "strata" and not hf_tok and not (tpath / "vocab.json").exists():
         ap.error(f"the model's tokenizer is missing ({tpath / 'vocab.json'}); run setup again")
     if (tpath / "vocab.json").exists():
         import strata_tokenizer as ST
@@ -10238,6 +10316,11 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
             delay_s=getattr(a, "script_delay", 0.0) or 0.0), None, {}
     # the model's own chat template (exported with its tokenizer), else the original model's
     tpl = tpath / "chat_template.jinja"
+    if (cfg.get("arch") or "") == "diffusion_gemma":
+        from serve import gemma4
+        tpl, swapped = gemma4.pick_template(tpl)
+        if swapped:
+            print("[strata] this pack's chat template is not Gemma 4's; using the bundled Gemma 4 template", flush=True)
     if (cfg.get("arch") or "") == "deepseek41":
         from serve import dsml
         tpl, swapped = dsml.pick_template(tpl)
@@ -10261,7 +10344,7 @@ def _main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> i
     svc.queue_timeout_s = float(queue_timeout) if queue_timeout is not None else None
     if a.engine == "strata":                            # the model card's sampling when nothing else is said (see MODEL_CARD_SAMPLING)
         svc.model_arch = cfg.get("arch") or "qwen4exp"
-        svc.set_family(svc.model_arch if svc.model_arch == "deepseek41" else None)
+        svc.set_family(svc.model_arch if svc.model_arch in ("deepseek41", "diffusion_gemma") else None)
         requested = cfg.get("parallel")
         if requested is None:
             args = cfg.get("args", [])

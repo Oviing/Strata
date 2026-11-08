@@ -2712,6 +2712,9 @@ class Runner:
 
     def run(self, *, start: bool = True) -> Result:
         self.restart_after = start
+        if self.catalog.is_sidecar(self.s.family):           # DiffusionGemma (MLX) has its own engine and install: `strata launch --family diffusiongemma ...` (cmd.run_sidecar), not these steps
+            raise LaunchError("DiffusionGemma is started from the command line, not from these screens.",
+                              f"Run: strata launch --family {self.s.family} --model {self.s.model} (strata launch --plan --family {self.s.family} shows what it does).", 5)
         try:
             self.check_own_files()                           # a wrong --model-path is said before the engine is downloaded
             if start:

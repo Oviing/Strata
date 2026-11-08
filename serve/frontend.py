@@ -141,11 +141,13 @@ EFFORT_DEEPSEEK = {"none": None, "off": None, "minimal": None, "disabled": None,
                    "low": "low", "medium": "medium", "high": "high", "xhigh": "max", "max": "max", "maximum": "max"}
 _EFFORT_QWEN = dict(EFFORT)
 _NUMERIC_EFFORT = False
+_ONOFF_ONLY = False         # Gemma 4: thinking is on or off (enable_thinking -> <|think|> in the system prompt), no levels
 
 
 def use_family(family: str | None) -> None:
     """The reasoning-effort words of the model family this server runs (module state, like ENV_TO_USER)."""
-    global _NUMERIC_EFFORT
+    global _NUMERIC_EFFORT, _ONOFF_ONLY
+    _ONOFF_ONLY = family == "diffusion_gemma"
     EFFORT.clear()
     EFFORT.update(EFFORT_DEEPSEEK if family == "deepseek41" else _EFFORT_QWEN)
     _NUMERIC_EFFORT = family == "deepseek41"
@@ -160,12 +162,14 @@ def effort_kwargs(value) -> dict:
     if _NUMERIC_EFFORT and isinstance(value, int) and not isinstance(value, bool):
         if not 1 <= value <= 100:
             raise ValueError(f"unknown reasoning effort {value!r}: use none, low, medium, high, max or 1..100")
-        return {"reasoning_effort": value}
+        return {"enable_thinking": True} if _ONOFF_ONLY else {"reasoning_effort": value}
     key = str(value).strip().lower()
     if key not in EFFORT:
         raise ValueError(f"unknown reasoning effort {value!r}: use none, low, medium or high"
                          + (", max or 1..100" if _NUMERIC_EFFORT else ""))
     level = EFFORT[key]
+    if _ONOFF_ONLY and level is not None:
+        return {"enable_thinking": True}
     return {"enable_thinking": False} if level is None else {"reasoning_effort": level}
 
 
@@ -175,6 +179,8 @@ def budget_effort(tokens) -> dict:
         n = int(tokens)
     except (TypeError, ValueError):
         return {}
+    if _ONOFF_ONLY:
+        return {"enable_thinking": True}
     return {"reasoning_effort": "low" if n < 2048 else "medium" if n < 8192 else EFFORT["high"]}
 
 
