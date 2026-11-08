@@ -1,11 +1,11 @@
 ﻿# Which model? Sizes, versions and what fits
 
 This page helps you choose a model and check that your computer can run it. It covers DeepSeek V4.1-Flash,
-Qwen3.8-Flash-Next (and its variants) and Qwen3.6-35B-A3B. For installing, see [INSTALL.md](INSTALL.md).
+Qwen3.8-Flash-Next (and its variants), Qwen3.6-35B-A3B and DiffusionGemma on a Mac. For installing, see [INSTALL.md](INSTALL.md).
 
 > **On this page:** [Quick start](#quick-start) · [Pick by memory](#pick-by-memory) ·
 > [DeepSeek V4.1-Flash](#deepseek-v41-flash) · [Qwen3.8-Flash-Next](#qwen38-flash-next) ·
-> [Qwen3.6-35B-A3B](#qwen36-35b-a3b) · [Adding or switching models](#adding-or-switching-models) ·
+> [Qwen3.6-35B-A3B](#qwen36-35b-a3b) · [DiffusionGemma on a Mac](#diffusiongemma-26b-a4b-mac-mlx) · [Adding or switching models](#adding-or-switching-models) ·
 > [History](#history--older-measurements)
 
 ## Quick start
@@ -290,6 +290,16 @@ Pictures, parallel requests, full measurements and limits: [QWEN36.md](QWEN36.md
 ```sh
 strata launch --family qwen36 --model UD-Q4_K_XL
 ```
+
+## DiffusionGemma-26B-A4B (Mac, MLX)
+
+Experimental. Apple-silicon Macs only, text only, one request at a time. Setup and commands are on
+[DIFFUSIONGEMMA.md](DIFFUSIONGEMMA.md). The sizes below are setup's estimates. We have not measured them.
+
+| Size | Where it comes from | Memory for the model | Notes |
+| --- | --- | ---: | --- |
+| `mlx-q3` | Made on your Mac from Google's BF16 model, about 52 GB to download | About 10 to 11 GB (estimate) | The default below 32 GB. Tight at 16 GB |
+| `mlx-q4` | Ready made by mlx-community, 16.6 GB download | Setup lists 24 GB | The default from 32 GB |
 
 ## Adding or switching models
 

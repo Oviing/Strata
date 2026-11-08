@@ -11,6 +11,7 @@ a value that cannot be run at all (a port that is not a number, an unknown acces
 from __future__ import annotations
 
 import difflib
+import os
 import re
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any
@@ -62,7 +63,7 @@ def speed_words(speed: str, default: bool) -> str:
         return "Faster" + (" (default on this PC)" if default else "")
     return "Full quality" + (" (default on this PC)" if default else "") + ": all 6 experts per word"
 KV_MODES = ("int8", "q4_0", "k8v4", "fp16")
-DEFAULT_PORT = 8080
+DEFAULT_PORT = int(os.environ.get("STRATA_DEFAULT_PORT") or 8080)   # dgemma-strata sets 8090 so it runs next to an installed Strata
 
 #: How many requests the card can answer at once (the spec's "fit to card" default): by graphics memory.
 PARALLEL_BY_VRAM = ((32.0, 4), (24.0, 3), (20.0, 2), (0.0, 1))

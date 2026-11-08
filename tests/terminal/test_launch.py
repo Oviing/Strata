@@ -109,6 +109,8 @@ class CatalogRules(unittest.TestCase):
             models, families, contexts, source = cat.tables()
             self.assertEqual(source, "setup.py")                       # the same tables setup.py and the app read
             for r in rows:
+                if r.family == "diffusiongemma":                       # MLX files, not in MODELS (tests/terminal/test_launch_diffusiongemma.py)
+                    continue
                 if r.family == "deepseek41":                           # its sizes are in MULTI_FILE_FAMILIES (shards + shared files), not in MODELS
                     self.assertAlmostEqual(r.download_gb, {"UD-Q8_K_XL": 508.4, "IST-DAS-2.00bpw": 256.8, "IST-DAS-2.25bpw": 273.8, "IST-DAS-1.75bpw": 239.3, "ISTA-DAS-Coder": 190.7, "UD-IQ1_S": 241.0, "UD-IQ1_M": 258.4}[r.model], delta=0.1)
                     continue
@@ -1018,7 +1020,7 @@ class FlagsCommand(unittest.TestCase):
         self.assertNotIn("Traceback", err)
 
     def test_unknown_flag_names_the_closest_one(self):
-        code, out, err = run_cli(["launch", "--modle", "iq3_xxs"])
+        code, out, err = run_cli(["launch", "--mdoel", "iq3_xxs"])
         self.assertEqual(code, 2)
         self.assertIn("Did you mean '--model'", err)
 
