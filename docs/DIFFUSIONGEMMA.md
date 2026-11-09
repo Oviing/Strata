@@ -155,6 +155,13 @@ Strata's own limits:
 - The report's speed is for a data-centre GPU. On 16 GB, a diffusion step touches about 84 of the 128 experts in each
   MoE layer (report page 17). The report does not show the speed of that on a 16 GB Mac. One-token mode may be faster
   there. Neither mode is measured by us.
+- **The first block can take a while.** Diffusion mode shows no text until the first block of 256 tokens is done. The
+  server window then says "the prompt is read ... writing the first tokens". Before this release the sidecar did the
+  work over the 262,144-token vocabulary in numpy on the CPU, at every step; one user report saw no text after five
+  minutes on a short prompt. It now does that work on the GPU in MLX, as mlx-vlm does. How long a block takes on a Mac
+  is not measured by us.
+- **The 3-bit copy may be larger than setup's estimate.** One user's conversion log said "4.790 bits per weight", not
+  about 3. Setup's 10-11 GB is an estimate; check the size of the folder after the conversion.
 
 ## Figures from others
 

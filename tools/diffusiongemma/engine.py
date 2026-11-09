@@ -182,7 +182,7 @@ class Engine:
             canvases += 1
             try:
                 r = sampler.denoise_canvas(m.decode, m.self_cond, rng, m.vocab_size, self.canvas, n_steps, bound,
-                                           e_stop, temperature, on_step)
+                                           e_stop, temperature, on_step, step=getattr(m, "step", None))
             except _Cancel:
                 return gen, steps, canvases, "cancel"
             steps += r.steps
@@ -205,6 +205,8 @@ class Engine:
                 return gen, steps, canvases, finish
             m.encode(toks, "canvas")
             self.cache_ids.extend(toks)
+            if hasattr(m, "clear_cache"):
+                m.clear_cache()
         return gen, steps, canvases, "length"
 
 

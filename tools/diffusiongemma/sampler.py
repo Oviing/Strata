@@ -4,6 +4,14 @@ one-token sampler.  Only numpy; no model.  The model is passed in as two callabl
     decode(canvas_ids [C], z) -> logits [C, V]      z is None on the first step (the report's z1 = 0)
     self_cond(p [C, V]) -> z                        what the next decode call takes as z
 
+A model can instead hand in one `step` callable that does the work over the vocabulary itself (MlxModel does it on
+the GPU):
+
+    step(canvas_ids [C], z, tau, rng, last) -> (argmax [C], entropy [C], draws [C] | None, z_next | None)
+
+Only arrays of the canvas' length then come back to numpy.  The vocabulary is 262,144 tokens, so a step's
+probabilities are 256 x 262,144 floats (268 MB); doing them in numpy took minutes per canvas.
+
 `temperature` scales the schedule: tau runs from TAU_MAX * s to TAU_MIN * s with s = temperature / 0.8, so the
 default temperature 0.8 is the report's 0.8 -> 0.4.
 """
@@ -65,30 +73,47 @@ class CanvasResult:
     stopped_early: bool       # the adaptive stop fired
 
 
-def denoise_canvas(decode: Callable, self_cond: Callable, rng: np.random.Generator, vocab: int,
+def numpy_step(decode: Callable, self_cond: Callable) -> Callable:
+    """The `step` of denoise_canvas from a decode and a self_cond callable, in numpy (the tests' path)."""
+    def step(x, z, tau, rng, last):
+        logits = np.asarray(decode(x, z), dtype=np.float32)
+        x0 = logits.argmax(axis=-1).astype(np.int64)
+        p = softmax(logits / tau)
+        e = entropy(p)
+        if last:
+            return x0, e, None, None
+        zn = self_cond(p)
+        return x0, e, sample_rows(p, rng), zn
+    return step
+
+
+def denoise_canvas(decode: Optional[Callable], self_cond: Optional[Callable], rng: np.random.Generator, vocab: int,
                    canvas: int = CANVAS, max_steps: int = MAX_STEPS, entropy_bound: float = ENTROPY_BOUND,
                    stop_entropy: float = STOP_ENTROPY, temperature: float = DEFAULT_TEMPERATURE,
-                   on_step: Optional[Callable[[int, np.ndarray], None]] = None) -> CanvasResult:
-    """Algorithm 1.  `on_step(n, argmax_canvas)` is called after every step (also the last)."""
+                   on_step: Optional[Callable[[int, np.ndarray], None]] = None,
+                   step: Optional[Callable] = None) -> CanvasResult:
+    """Algorithm 1.  `on_step(n, argmax_canvas)` is called after every step (also the last).  `step` replaces
+    decode and self_cond (see the module's docstring)."""
+    if step is None:
+        step = numpy_step(decode, self_cond)
     x = rng.integers(0, vocab, size=canvas, dtype=np.int64)       # x1 ~ Uniform(V)
     z = None
     prev = None
     idx = np.arange(canvas)
     x0 = x
     for n in range(1, max_steps + 1):
-        logits = np.asarray(decode(x, z), dtype=np.float32)
-        x0 = logits.argmax(axis=-1).astype(np.int64)
         tau = tau_at(n, max_steps, temperature)
-        p = softmax(logits / tau)
-        e = entropy(p)
+        x0, e, xd, zn = step(x, z, tau, rng, n >= max_steps)
+        x0 = np.asarray(x0, dtype=np.int64)
+        e = np.asarray(e)
         if on_step is not None:
             on_step(n, x0)
         if n > 1 and float(e.mean()) <= stop_entropy and prev is not None and np.array_equal(x0, prev):
             return CanvasResult(x0, n, True)
         prev = x0
         if n < max_steps:
-            z = self_cond(p)
-            xd = sample_rows(p, rng)
+            z = zn
+            xd = np.asarray(xd, dtype=np.int64)
             order = np.lexsort((idx, e))                          # entropy ascending, ties by index
             k = accept_count(e[order], entropy_bound)
             nxt = rng.integers(0, vocab, size=canvas, dtype=np.int64)   # renoise everything else
