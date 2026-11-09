@@ -160,6 +160,9 @@ Strata's own limits:
   work over the 262,144-token vocabulary in numpy on the CPU, at every step; one user report saw no text after five
   minutes on a short prompt. It now does that work on the GPU in MLX, as mlx-vlm does. How long a block takes on a Mac
   is not measured by us.
+- **One token at a time (`ar`) crashed before this release** on the first request. It now reads each next token
+  from the model's decoder over a block of one token, after the text so far. We have not checked that this is the
+  one-token mode of the report (section 3.5), or how good its answers are.
 - **The 3-bit copy may be larger than setup's estimate.** One user's conversion log said "4.790 bits per weight", not
   about 3. Setup's 10-11 GB is an estimate; check the size of the folder after the conversion.
 

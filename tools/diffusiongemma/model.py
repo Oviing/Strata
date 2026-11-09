@@ -102,13 +102,11 @@ class FakeModel(Model):
 class MlxModel(Model):
     """DiffusionGemma on MLX through mlx-vlm's `diffusion_gemma` module (mlx-vlm 0.7.x).
 
-    UNTESTED HERE.  Written on Linux against the source of mlx_vlm/models/diffusion_gemma/{diffusion_gemma,language}.py
-    and mlx_vlm/generate/diffusion.py (0.7.0).  It has not been run, on a Mac or anywhere else.  Check on a Mac:
-      - the calls below exist in the pinned mlx-vlm version (diffusion_prefill_cache, diffusion_update_cache,
-        diffusion_decoder_masks, diffusion_decoder_logits, diffusion_self_conditioning, make_cache)
+    Run on Linux only, with mlx 0.32.4 (CPU) and mlx-vlm 0.7.12 on a tiny DiffusionGemma with random weights: the calls
+    below exist there and both modes serve requests.  Not run on a Mac or with the real weights.  Check on a Mac:
       - the cache objects can be trimmed (`trim`); if not, truncate() falls back to a full re-read
-      - one-token mode (last_logits / encode kind "token") uses the encoder's causal path through
-        `model(input_ids, cache=...)`; check that this is the path the report's one-token mode uses
+      - one-token mode (last_logits) decodes a canvas of one token after the cache; check that this matches the
+        report's one-token mode (section 3.5)
     Imports of mlx and mlx_vlm happen here, not at module import, so the rest of the engine runs without them.
     """
 
@@ -145,23 +143,27 @@ class MlxModel(Model):
     def encode(self, ids, kind: str = "prompt") -> None:
         mx = self.mx
         arr = mx.array([[int(t) for t in ids]])
-        if kind == "canvas":
-            self.cache = self.model.diffusion_update_cache(arr, cache=self.cache)
-        elif kind == "prompt":
+        if kind == "prompt":
             self.cache = self.model.diffusion_prefill_cache(
                 arr, attention_mask=None, cache=self.cache, pixel_values=None, mm_token_type_ids=None,
                 prefill_step_size=None, chunk_prefill=False)
-        else:   # one token at a time: the causal path
-            self._last = self.model.language_model(arr, cache=self.cache) if hasattr(self.model, "language_model") \
-                else self.model(arr, cache=self.cache)
+        else:   # a kept canvas, or one token in one-token mode: the encoder adds it to the cache
+            self.cache = self.model.diffusion_update_cache(arr, cache=self.cache)
         self.ids.extend(int(t) for t in ids)
         self._masks_len = -1
         mx.eval([c.state for c in self.cache])
 
     def last_logits(self) -> np.ndarray:
-        out = self._last
-        logits = getattr(out, "logits", out)
-        return np.array(logits[0, -1].astype(self.mx.float32))
+        """One-token mode: the decoder over a canvas of one random token, after the cache, without self-conditioning
+        (the first step of Algorithm 1 with a canvas of length 1).  The encoder has no output head in mlx-vlm: its
+        hidden states only fill the cache, and the logits come from the decoder.  Calling the whole model (as this code
+        did before) encodes the token and then decodes a random 256-token canvas, whose last row is the wrong logits."""
+        mx = self.mx
+        x = mx.random.randint(0, self.vocab_size, (1, 1)).astype(mx.int32)
+        masks = self.model.diffusion_decoder_masks(x, self.cache, None)
+        logits = self.model.diffusion_decoder_logits(x, cache=self.cache, self_conditioning=None, decoder_attention_mask=masks)
+        mx.eval(logits)
+        return np.array(logits[0, -1].astype(mx.float32))
 
     def truncate(self, n: int) -> None:
         drop = len(self.ids) - n
