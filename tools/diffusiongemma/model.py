@@ -102,13 +102,11 @@ class FakeModel(Model):
 class MlxModel(Model):
     """DiffusionGemma on MLX through mlx-vlm's `diffusion_gemma` module (mlx-vlm 0.7.x).
 
-    UNTESTED HERE.  Written on Linux against the source of mlx_vlm/models/diffusion_gemma/{diffusion_gemma,language}.py
-    and mlx_vlm/generate/diffusion.py (0.7.0).  It has not been run, on a Mac or anywhere else.  Check on a Mac:
-      - the calls below exist in the pinned mlx-vlm version (diffusion_prefill_cache, diffusion_update_cache,
-        diffusion_decoder_masks, diffusion_decoder_logits, diffusion_self_conditioning, make_cache)
+    Run on Linux only, with mlx 0.32.4 (CPU) and mlx-vlm 0.7.12 on a tiny DiffusionGemma with random weights: the calls
+    below exist there and both modes serve requests.  Not run on a Mac or with the real weights.  Check on a Mac:
       - the cache objects can be trimmed (`trim`); if not, truncate() falls back to a full re-read
-      - one-token mode (last_logits / encode kind "token") uses the encoder's causal path through
-        `model(input_ids, cache=...)`; check that this is the path the report's one-token mode uses
+      - one-token mode (last_logits) decodes a canvas of one token after the cache; check that this matches the
+        report's one-token mode (section 3.5)
     Imports of mlx and mlx_vlm happen here, not at module import, so the rest of the engine runs without them.
     """
 
@@ -123,11 +121,18 @@ class MlxModel(Model):
         self.ids: list = []
         self._masks = None
         self._masks_len = -1
+        self._sc_weight = self.model.diffusion_prepare_self_conditioning()   # None for quantized embeddings
         self.reset()
 
     @property
     def length(self) -> int:
         return len(self.ids)
+
+    def clear_cache(self) -> None:
+        """Give MLX's freed buffers back after a canvas (mlx-vlm does this after every canvas too)."""
+        fn = getattr(self.mx, "clear_cache", None) or getattr(getattr(self.mx, "metal", None), "clear_cache", None)
+        if fn is not None:
+            fn()
 
     def reset(self) -> None:
         self.cache = self.model.make_cache()
@@ -138,23 +143,27 @@ class MlxModel(Model):
     def encode(self, ids, kind: str = "prompt") -> None:
         mx = self.mx
         arr = mx.array([[int(t) for t in ids]])
-        if kind == "canvas":
-            self.cache = self.model.diffusion_update_cache(arr, cache=self.cache)
-        elif kind == "prompt":
+        if kind == "prompt":
             self.cache = self.model.diffusion_prefill_cache(
                 arr, attention_mask=None, cache=self.cache, pixel_values=None, mm_token_type_ids=None,
                 prefill_step_size=None, chunk_prefill=False)
-        else:   # one token at a time: the causal path
-            self._last = self.model.language_model(arr, cache=self.cache) if hasattr(self.model, "language_model") \
-                else self.model(arr, cache=self.cache)
+        else:   # a kept canvas, or one token in one-token mode: the encoder adds it to the cache
+            self.cache = self.model.diffusion_update_cache(arr, cache=self.cache)
         self.ids.extend(int(t) for t in ids)
         self._masks_len = -1
         mx.eval([c.state for c in self.cache])
 
     def last_logits(self) -> np.ndarray:
-        out = self._last
-        logits = getattr(out, "logits", out)
-        return np.array(logits[0, -1].astype(self.mx.float32))
+        """One-token mode: the decoder over a canvas of one random token, after the cache, without self-conditioning
+        (the first step of Algorithm 1 with a canvas of length 1).  The encoder has no output head in mlx-vlm: its
+        hidden states only fill the cache, and the logits come from the decoder.  Calling the whole model (as this code
+        did before) encodes the token and then decodes a random 256-token canvas, whose last row is the wrong logits."""
+        mx = self.mx
+        x = mx.random.randint(0, self.vocab_size, (1, 1)).astype(mx.int32)
+        masks = self.model.diffusion_decoder_masks(x, self.cache, None)
+        logits = self.model.diffusion_decoder_logits(x, cache=self.cache, self_conditioning=None, decoder_attention_mask=masks)
+        mx.eval(logits)
+        return np.array(logits[0, -1].astype(mx.float32))
 
     def truncate(self, n: int) -> None:
         drop = len(self.ids) - n
@@ -168,22 +177,43 @@ class MlxModel(Model):
         else:
             raise RuntimeError("the cache cannot be trimmed")
 
-    def decode(self, canvas, z):
+    def _logits(self, canvas, z):
+        """The decoder's logits [1, C, V] for a canvas, lazily (not evaluated)."""
         mx = self.mx
-        arr = mx.array(np.asarray(canvas, dtype=np.int64)[None, :])
+        arr = mx.array(np.asarray(canvas, dtype=np.int32)[None, :])
         if self._masks is None or self._masks_len != len(self.ids) or self._masks_canvas != arr.shape[1]:
             self._masks = self.model.diffusion_decoder_masks(arr, self.cache, None)
             self._masks_len, self._masks_canvas = len(self.ids), arr.shape[1]
-        logits = self.model.diffusion_decoder_logits(arr, cache=self.cache, self_conditioning=z,
-                                                     decoder_attention_mask=self._masks)
+        return self.model.diffusion_decoder_logits(arr, cache=self.cache, self_conditioning=z,
+                                                   decoder_attention_mask=self._masks)
+
+    def decode(self, canvas, z):
+        mx = self.mx
+        logits = self._logits(canvas, z)
         mx.eval(logits)
         return np.array(logits[0].astype(mx.float32))
+
+    def step(self, canvas, z, tau, rng, last):
+        """One denoising step on the GPU (sampler.denoise_canvas's `step`).  The work over the vocabulary (262,144
+        tokens: temperature, argmax, entropy, the draws, the self-conditioning input) stays in MLX, as in mlx-vlm's
+        own generate/diffusion.py; only four arrays of the canvas' length come back.  The draws use a key taken from
+        `rng`, so a fixed seed repeats a result.  z stays an MLX array."""
+        mx = self.mx
+        proc = self._logits(canvas, z)[0].astype(mx.float32) / float(tau)          # [C, V]
+        x0 = mx.argmax(proc, axis=-1)
+        logp = proc - mx.logsumexp(proc, axis=-1, keepdims=True)
+        ent = -mx.sum(mx.exp(logp) * logp, axis=-1)
+        if last:
+            mx.eval(x0, ent)
+            return np.array(x0), np.array(ent), None, None
+        draws = mx.random.categorical(proc, key=mx.random.key(int(rng.integers(0, 2 ** 32))))
+        # the processed logits are what mlx-vlm passes; softmax(proc) is the p of the numpy path
+        zn = self.model.diffusion_self_conditioning(proc[None], self._sc_weight)
+        mx.eval(x0, ent, draws, zn)
+        return np.array(x0), np.array(ent), np.array(draws), zn
 
     def self_cond(self, p):
         mx = self.mx
         pm = mx.array(p[None, :, :])
-        if self.model.prefers_logits_self_conditioning:
-            # quantized embeddings take logits: log p is the processed logits up to a constant per position
-            return self.model.diffusion_self_conditioning(mx.log(mx.maximum(pm, 1e-30)), None)
-        w = self.model.diffusion_prepare_self_conditioning()
-        return self.model.diffusion_self_conditioning(mx.log(mx.maximum(pm, 1e-30)), w)
+        # log p is the processed logits up to a constant per position
+        return self.model.diffusion_self_conditioning(mx.log(mx.maximum(pm, 1e-30)), self._sc_weight)

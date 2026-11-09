@@ -6249,7 +6249,10 @@ class Service:
         if s.get("first_token") is None:
             pr = getattr(self.engine, "progress", None)   # (position reached, prompt tokens): a reused prefix counts
             done = f"{pr[0]:,} of {pr[1]:,}" if pr and pr[1] else f"{s.get('prompt_tokens', 0):,}"   # as read (#29)
-            print(f"[strata] reading the prompt: {done} tokens, {el:.0f} s so far", flush=True)
+            if pr and pr[1] and pr[0] >= pr[1]:     # read: the engine works on the first tokens (DiffusionGemma: a whole block)
+                print(f"[strata] the prompt is read ({pr[1]:,} tokens); writing the first tokens, {el:.0f} s so far", flush=True)
+            else:
+                print(f"[strata] reading the prompt: {done} tokens, {el:.0f} s so far", flush=True)
         else:
             rate = s["generated"] / max(RATE_MIN_SPAN_S, now - s["first_token"])
             # #984: while a thinking budget applies, the thinking line shows it, not the request's max_tokens

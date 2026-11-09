@@ -1,5 +1,5 @@
 """DiffusionGemma sidecar engine (tools/diffusiongemma): the sampler on fixed logits, and the engine protocol with the
-fake model.  No GPU, no Mac, no downloads.  MlxModel is not tested here."""
+fake model.  No GPU, no Mac, no downloads.  MlxModel is not tested here (it needs mlx and mlx-vlm)."""
 import os
 import queue
 import stat
@@ -127,6 +127,28 @@ def test_fake_model_converges_in_few_steps():
     r = S.denoise_canvas(m.decode, m.self_cond, np.random.default_rng(0), m.vocab_size, canvas=16)
     assert r.stopped_early and r.steps < 12
     assert list(r.tokens) == [m.target(3 + j) for j in range(16)]
+
+
+def test_step_callable_replaces_decode_and_self_cond():
+    """A model's own `step` (MlxModel does the vocabulary work on the GPU) gives the same canvas as decode/self_cond, and
+    decode/self_cond are then not called; the last step asks for no draws and no z."""
+    m = FakeModel()
+    m.encode([5, 6, 7], "prompt")
+    a = S.denoise_canvas(m.decode, m.self_cond, np.random.default_rng(3), m.vocab_size, canvas=16)
+    inner, lasts = S.numpy_step(m.decode, m.self_cond), []
+
+    def step(x, z, tau, rng, last):
+        lasts.append(last)
+        return inner(x, z, tau, rng, last)
+
+    def boom(*_):
+        raise AssertionError("decode/self_cond called next to step")
+
+    b = S.denoise_canvas(boom, boom, np.random.default_rng(3), m.vocab_size, canvas=16, step=step)
+    assert list(a.tokens) == list(b.tokens) and a.steps == b.steps
+    lasts.clear()
+    S.denoise_canvas(None, None, np.random.default_rng(3), m.vocab_size, canvas=16, max_steps=2, step=step)
+    assert lasts == [False, True]
 
 
 # --- protocol -----------------------------------------------------------------------------------------------------
